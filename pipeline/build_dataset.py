@@ -18,12 +18,12 @@ Steps:
 Typical workflow::
 
     # First run: generates JSONs in data/postprocessing/
-    pixi run python -m pipeline.build_dataset
+    pixi run build_dataset
 
     # Manually fill in "to" values in each tracking_postprocessing.json
 
     # Second run: validates remaps, builds dataset
-    pixi run python -m pipeline.build_dataset
+    pixi run build_dataset
 """
 
 import json

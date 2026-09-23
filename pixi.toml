@@ -88,6 +88,8 @@ torch = "==2.9.1+cu126"
 torchvision = "==0.24.1+cu126"
 lightning = ">=2.5"
 kmedoids = ">=0.5.5,<0.6"
+# pandas DataFrame.to_markdown (clustering_grid) and TrackEval output tables
+tabulate = ">=0.9"
 
 [pypi-options]
 extra-index-urls = ["https://download.pytorch.org/whl/cu126"]
@@ -108,6 +110,9 @@ ultralytics = "==8.4.23"
 compute_chunk_boundaries = "python -m pipeline.compute_chunk_boundaries"
 test_tracker = "CUDA_VISIBLE_DEVICES=0 python -m pytest tests/test_tracker.py -v"
 test_tracking_postprocessing = "python -m pytest tests/test_tracking_postprocessing.py -v"
+# Import smoke test with all heavy deps installed. CI skips modules that need
+# torch, so run this before a release to cover them.
+test_imports_full = "python -m pytest tests/test_imports.py -v"
 
 [feature.ci.dependencies]
 python = ">=3.11,<3.12"

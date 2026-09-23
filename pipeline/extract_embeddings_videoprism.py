@@ -36,8 +36,6 @@ import tensorflow as tf
 import torch
 
 from loguru import logger
-from PIL import Image
-from tqdm import tqdm
 from videoprism import models as vp
 
 tf.config.set_visible_devices([], "GPU")

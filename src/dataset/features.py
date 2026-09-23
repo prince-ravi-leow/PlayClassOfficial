@@ -1,7 +1,8 @@
 """Handcrafted mask feature extraction: spatial, temporal, and pairwise."""
 
 import multiprocessing
-import os
+
+from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
@@ -10,6 +11,9 @@ import pycocotools.mask as mask_util
 
 from loguru import logger
 from tqdm.auto import tqdm
+
+if TYPE_CHECKING:
+    import torch  # annotation only; imported lazily in bin_features_per_window
 
 _N_WORKERS = 16
 

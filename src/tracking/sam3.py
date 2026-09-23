@@ -1,4 +1,11 @@
-"""Tracking pipeline"""
+"""SAM3 chunked tracking pipeline.
+
+Each video is processed in chunks: chunk 0 uses Sam3VideoModel (text-prompted
+segmentation); subsequent chunks use Sam3TrackerVideoModel (point-prompted),
+initialised from masks sampled at the cleanest frame in the previous chunk.
+
+Launched via ``pipeline/run_tracker.py`` (see ``docs/2_tracking.md``).
+"""
 
 import json
 import shutil

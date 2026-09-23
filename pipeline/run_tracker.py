@@ -1,9 +1,4 @@
-"""
-Unified launcher for tracking pipelines (SAM 3, Grounded-SAM-2).
-
-Each video is processed in chunks: chunk 0 uses Sam3VideoModel (text-prompted
-segmentation); subsequent chunks use Sam3TrackerVideoModel (point-prompted),
-initialised from masks sampled at the cleanest frame in the previous chunk.
+"""Unified launcher for tracking pipelines (SAM 3, Grounded-SAM-2).
 
 Usage:
     # Run with default config (config/sam3_best.yaml)
@@ -120,8 +115,7 @@ def run(
             _run_batch(cfg, batch_dir, video_path, config_path=config_path)
         else:
             videos = sorted(
-                f
-                for f in video_path.iterdir()
+                f for f in video_path.iterdir()
                 if f.is_file() and f.suffix in VIDEO_EXTENSIONS
             )
             for video_file in videos:
