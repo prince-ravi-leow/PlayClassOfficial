@@ -86,7 +86,7 @@ Recompute YOLO scan metrics and chunk boundaries from an existing run without
 re-running SAM 3:
 
 ```sh
-pixi run -e tracker python -m pipeline.compute_chunk_boundaries \
+pixi run -e tracker compute_chunk_boundaries \
     --run-dir data/results/tracking/{config_stem}/day_{N}/{video_stem} \
     --video-dir data/videos/day_{N}
 ```

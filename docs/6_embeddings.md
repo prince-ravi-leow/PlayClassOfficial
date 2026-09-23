@@ -53,7 +53,7 @@ between the hub repo's `src/` directory and this project's own `src/` package.
 
 ```sh
 # Download ViT-B + ViT-L checkpoints and patch hub cache (run once)
-pixi run setup_vjepa2
+bash scripts/setup_vjepa2.1.sh
 ```
 
 Available models:

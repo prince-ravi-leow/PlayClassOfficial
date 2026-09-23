@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+
 from loguru import logger
 
 from src._config import DEFAULT_MIN_WINDOW_COVERAGE

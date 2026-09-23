@@ -1,6 +1,7 @@
 """Internal clustering quality metrics: pooled distortion and gap statistic."""
 
 import numpy as np
+
 from scipy.spatial.distance import pdist
 
 
@@ -81,7 +82,10 @@ def gap_score(
     if random_state is not None:
         np.random.seed(random_state)
 
-    assert method in ["log", "star"], f'Method {method} not available. Use "log" or "star".'
+    assert method in [
+        "log",
+        "star",
+    ], f'Method {method} not available. Use "log" or "star".'
 
     real_dispersion = pooled_distortion_score(X, labels)
 
@@ -91,7 +95,9 @@ def gap_score(
             random_data = np.random.normal(loc=X.mean(0), scale=X.std(0), size=X.shape)
         elif distribution == "uniform":
             x_min, x_max = X.min(axis=0, keepdims=True), X.max(axis=0, keepdims=True)
-            random_data = np.random.random_sample(size=X.shape) * (x_max - x_min) + x_min
+            random_data = (
+                np.random.random_sample(size=X.shape) * (x_max - x_min) + x_min
+            )
         else:
             raise ValueError(f"Unknown distribution: {distribution}")
 

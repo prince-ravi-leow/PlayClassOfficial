@@ -43,7 +43,7 @@ for entry in "${BACKBONES[@]}"; do
         echo " [${RUN}/${TOTAL}] ${LABEL}  K=${K}"
         echo "=========================================="
 
-        pixi run python -m pipeline.train \
+        pixi run train \
             --model temporal_cnn2 \
             --input "${EMB}" \
             --exclude social \

@@ -7,7 +7,7 @@ mean-pools the output tokens into one embedding per window.
 
 V-JEPA 2.1 setup (one-time)::
 
-    pixi run setup_vjepa2
+    bash scripts/setup_vjepa2.1.sh
 
 This downloads the ViT-B and ViT-L checkpoints and patches the torch.hub cache to rename
 ``src/`` to ``vjepa2/`` (avoids collision with this project's ``src/``).

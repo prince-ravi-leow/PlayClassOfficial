@@ -1,9 +1,9 @@
 """
 YOLO-based raw inference scan.
 
-Runs YOLO + BoT-SORT on a video and returns a per-detection DataFrame
-(``yolo_tracking.parquet``). Also holds the scan analysis used by adaptive
-chunking: high-separation windows, occlusion periods, and scan summaries.
+Runs YOLO+BoT-SORT on a video and returns a per-detection DataFrame
+(``yolo_tracking.parquet``).  Per-frame metrics (occlusion, separation,
+clustering) are computed by ``src.tracking.metrics``.
 """
 
 from pathlib import Path

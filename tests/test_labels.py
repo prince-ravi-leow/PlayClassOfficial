@@ -1,12 +1,16 @@
 """Tests for label parsing and bird_info correctness."""
 
 from glob import glob
+from pathlib import Path
 
 import pytest
 
 from src._config import DEFAULT_LABEL_DIR, DEFAULT_N_BIRDS
 from src.dataset.labels import process_labels
 from src.dataset.utils import cage_id_from_video_id, extract_video_id
+
+_LABEL_FILES = sorted(glob(f"{DEFAULT_LABEL_DIR}/*.xlsx"))
+_HAS_LABELS = bool(_LABEL_FILES)
 
 
 @pytest.mark.parametrize(
@@ -25,11 +29,10 @@ def test_extract_video_id(dirname, expected):
 
 @pytest.fixture(scope="module")
 def parsed_labels():
-    label_files = sorted(glob(f"{DEFAULT_LABEL_DIR}/*.xlsx"))
-    assert label_files, f"No .xlsx files found in {DEFAULT_LABEL_DIR}"
-    return process_labels(label_files)
+    return process_labels(_LABEL_FILES)
 
 
+@pytest.mark.skipif(not _HAS_LABELS, reason="Label data not found")
 def test_bird_info_n_birds(parsed_labels):
     """Each video_id must have exactly DEFAULT_N_BIRDS birds."""
     _, bird_info = parsed_labels
@@ -40,6 +43,7 @@ def test_bird_info_n_birds(parsed_labels):
         ), f"{video_id}: expected {DEFAULT_N_BIRDS} birds, got {len(birds)} — {birds}"
 
 
+@pytest.mark.skipif(not _HAS_LABELS, reason="Label data not found")
 def test_video_id_format(parsed_labels):
     """video_id must follow CxGyDz format (e.g. C1G3D28)."""
     _, bird_info = parsed_labels
@@ -50,6 +54,7 @@ def test_video_id_format(parsed_labels):
         assert pattern.match(video_id), f"Invalid video_id format: {video_id!r}"
 
 
+@pytest.mark.skipif(not _HAS_LABELS, reason="Label data not found")
 def test_no_duplicate_birds_across_groups_same_day(parsed_labels):
     """Within the same cage+day, no bird should appear in multiple groups."""
     _, bird_info = parsed_labels
@@ -72,6 +77,7 @@ def test_no_duplicate_birds_across_groups_same_day(parsed_labels):
         ), f"{cage}{day}: duplicate bird IDs across groups"
 
 
+@pytest.mark.skipif(not _HAS_LABELS, reason="Label data not found")
 def test_birds_stay_within_cage(parsed_labels):
     """Each bird must appear in only one cage across all observation days."""
     _, bird_info = parsed_labels

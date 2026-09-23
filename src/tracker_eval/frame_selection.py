@@ -1,7 +1,7 @@
 """Select annotation frames for the tracker-eval ground-truth pass.
 
-For each selected video in ``data/results/eval_tracking/video_manifest.csv``
-(selected=True), samples frames from three sources (priority order):
+For each selected video in ``data/results/eval_tracking/video_manifest.csv`` (selected=True),
+samples frames from three sources (priority order):
   chunk_guided        — ±5 frames around each adaptive chunk boundary
   occlusion_bracketing — start/mid/end ±3 of the top-K longest occlusion periods
   uniform             — one frame every UNIFORM_INTERVAL_SECONDS

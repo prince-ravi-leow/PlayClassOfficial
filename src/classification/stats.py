@@ -42,7 +42,9 @@ def aggregate_scalars(
 
     for col in numeric_cols:
         values = [r[col] for r in fold_results if col in r]
-        logger.info(f"{prefix.upper()} {col}: {np.mean(values):.4f} +/- {np.std(values):.4f}")
+        logger.info(
+            f"{prefix.upper()} {col}: {np.mean(values):.4f} +/- {np.std(values):.4f}"
+        )
 
 
 def _macro_f1_from_cm(cm: np.ndarray) -> float:
@@ -93,9 +95,12 @@ def _save_recall_txt(
     lines = [header]
     for i in range(n_folds):
         lines.append(
-            f"{'fold_' + str(i):<8s}" + "".join(f"{recalls[c][i]:>14.4f}" for c in labels)
+            f"{'fold_' + str(i):<8s}"
+            + "".join(f"{recalls[c][i]:>14.4f}" for c in labels)
         )
-    lines.append(f"{'MEAN':<8s}" + "".join(f"{recalls[c].mean():>14.4f}" for c in labels))
+    lines.append(
+        f"{'MEAN':<8s}" + "".join(f"{recalls[c].mean():>14.4f}" for c in labels)
+    )
     lines.append(f"{'STD':<8s}" + "".join(f"{recalls[c].std():>14.4f}" for c in labels))
 
     split = key.replace("_confusion_matrix", "")

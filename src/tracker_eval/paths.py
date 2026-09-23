@@ -1,10 +1,10 @@
 """Single source of truth for all paths used by the tracker-eval pipeline.
 
-Small artefacts (video manifest, keyframe schedule, results CSVs) live under
-`data/results/eval_tracking/`; heavy ones (CVAT backup, ground-truth and
-prediction MOT files) under its `tracker_benchmark/` subdir. Tracker run
-outputs are read from `data/results/tracking/{config_stem}/`, and the
-per-variant YAML configs live in `config/`.
+Data-side paths host small, version-controlled artefacts (manifests,
+keyframe schedules, results CSVs) under `data/results/eval_tracking/`.
+Heavy artefacts (CVAT Backup, MOT files) live under
+`data/results/eval_tracking/tracker_benchmark/`; tracker run parquets are
+read from `data/results/tracking/{config_stem}/`.
 
 Each subcommand's CLI accepts `--manifest` / `--out` / `--predictions-root`
 overrides; these constants supply the defaults.
@@ -30,6 +30,9 @@ PREDICTIONS_MOT_DIR: Final = f"{BENCHMARK_DIR}/predictions_mot"
 
 TRACKEVAL_DIR: Final = "ext/TrackEval"
 
+SCAN_RUNS_ROOT: Final = f"{DEFAULT_TRACKING_DIR}/sam3_best"
+RAW_VIDEO_ROOT: Final = DEFAULT_VIDEO_DIR
+
 DEFAULT_TRACKER_CONFIG: Final = "config/sam3_best.yaml"
 
 # Per-variant tracker run directories (keyed by config stem)
@@ -46,7 +49,3 @@ TRACKER_RUNS_YOLO_BOTSORT: Final = f"{DEFAULT_TRACKING_DIR}/yolo_botsort"
 TRACKER_RUNS_YOLO_BOTSORT_REID_ON: Final = (
     f"{DEFAULT_TRACKING_DIR}/yolo_botsort_reid_on"
 )
-
-# build-manifest inputs: YOLO scans (`day_{N}/{video_stem}/`) + source videos
-SCAN_RUNS_ROOT: Final = TRACKER_RUNS_SAM3_BEST
-RAW_VIDEO_ROOT: Final = DEFAULT_VIDEO_DIR

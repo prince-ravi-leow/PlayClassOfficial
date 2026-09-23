@@ -1,7 +1,9 @@
 # Analysis
 
 Analysis notebooks live in `notebook/`. Open and run them in Jupyter — all paths
-are relative to `notebook/`, all figure outputs go to `img/` (figures and cell outputs are only saved when `save_output = True` (first cell); otherwise they are only displayed inline). 
+are relative to `notebook/`, all figure outputs go to `img/` (figures and cell
+outputs are only saved when `save_output = True` (first cell); otherwise they
+are only displayed inline).
 
 ## Notebooks
 
@@ -11,6 +13,7 @@ are relative to `notebook/`, all figure outputs go to `img/` (figures and cell o
 | `fig2_clustering.ipynb`     | `data/dataset/labels.parquet`, `data/dataset/features_windowed.parquet`, `data/results/clustering/Z_dropna.npy` (optional), `data/results/clustering/grid_dropna.csv`                                                 | `fig2_cluster_heatmap.pdf/png`, `fig2_tsne_{ethogram,subbehaviours,cluster}.pdf/png`, `fig2_radar.pdf/png`, `figS_loadings.pdf/png`, `figS_cluster_vs_k.pdf/png`, `data/results/clustering/cluster_assignments.csv` |
 | `fig3_classification.ipynb` | `data/dataset/labels.parquet`, `data/dataset/features_windowed.parquet`, `data/dataset/embeddings_vjepa21_vitl_temporal.pt`, six runs in `data/results/eval_classification/` (see [below](#fig3-classification-runs)) | `fig3_metrics.pdf/png`, `fig3_metrics_uar.pdf/png`, `fig3_heatmap.pdf/png`, `fig3_heatmap_v2.pdf/png`, `fig3_heatmap_v3.pdf/png`, `fig3_shap_feature_groups.pdf`                                                    |
 | `figS_tracker_eval.ipynb`   | `data/results/eval_tracking/results/metrics_aggregate.csv`, `data/results/eval_tracking/results/metrics_per_video.csv`                                                                                                | `figS_tracker_eval_hota.pdf/png`, `figS_tracker_eval_metrics_agg.pdf/png`                                                                                                                                           |
+
 ### fig3 classification runs
 
 `fig3_classification.ipynb` hard-codes six run directories under

@@ -40,7 +40,7 @@ adaptive_search_window_seconds: 10.0 # Search radius (±s) when refining each bo
 #
 # To retune without re-running YOLO inference:
 #   1. Edit the params below
-#   2. pixi run -e tracker python -m pipeline.compute_chunk_boundaries \
+#   2. pixi run -e tracker compute_chunk_boundaries \
 #          --run-dir <run_dir> --config config/yolo_botsort.yaml
 # =============================================================================
 yolo_scan:

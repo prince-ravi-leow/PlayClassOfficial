@@ -6,9 +6,11 @@ embedding-label alignment checks used across the three dataset pipeline steps.
 
 import os
 import re
+
 from pathlib import Path
 
 import pandas as pd
+
 from loguru import logger
 
 from src._config import DEFAULT_FPS
@@ -28,7 +30,12 @@ def parse_model_size(model_name: str) -> str | None:
     if match:
         return "vit" + match.group(1)
     # Keyword fallback
-    for keyword, tag in [("base", "vitb"), ("large", "vitl"), ("giant", "vitg"), ("huge", "vith")]:
+    for keyword, tag in [
+        ("base", "vitb"),
+        ("large", "vitl"),
+        ("giant", "vitg"),
+        ("huge", "vith"),
+    ]:
         if keyword in m:
             return tag
     return None
@@ -112,10 +119,6 @@ def assert_embedding_label_alignment(
     extra = embedding_keys - label_keys
     missing = label_keys - embedding_keys
     if extra:
-        logger.warning(
-            f"Embedding/label mismatch: {len(extra)} in embeddings only"
-        )
+        logger.warning(f"Embedding/label mismatch: {len(extra)} in embeddings only")
     if missing:
-        logger.warning(
-            f"Embedding/label mismatch: {len(missing)} in labels only"
-        )
+        logger.warning(f"Embedding/label mismatch: {len(missing)} in labels only")

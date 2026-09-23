@@ -14,7 +14,12 @@ import pycocotools.mask as mask_util
 from loguru import logger
 from PIL import Image, ImageDraw
 
-from src._config import DEFAULT_DATASET_DIR, DEFAULT_TRACKING_DIR, DEFAULT_VIDEO_DIR, LABEL_ORDER
+from src._config import (
+    DEFAULT_DATASET_DIR,
+    DEFAULT_TRACKING_DIR,
+    DEFAULT_VIDEO_DIR,
+    LABEL_ORDER,
+)
 from src.dataset.crops import (
     CROP_MODES,
     compute_union_origin,
@@ -187,7 +192,9 @@ def main():
             if prefix is not None:
                 crop_sz = int(mode.removeprefix(prefix))
                 if crop_sz not in union_origins:
-                    union_origins[crop_sz] = compute_union_origin(all_bboxes, fh, fw, crop_size=crop_sz)
+                    union_origins[crop_sz] = compute_union_origin(
+                        all_bboxes, fh, fw, crop_size=crop_sz
+                    )
 
         # --- Crop mode comparison ---
         for fi, (_, trow) in enumerate(sampled.iterrows()):
@@ -216,7 +223,10 @@ def main():
                     continue
 
                 # Annotate with bbox rectangle for context crops
-                if mode.startswith(("plain", "union", "darken", "roi")) and mode != "bbox":
+                if (
+                    mode.startswith(("plain", "union", "darken", "roi"))
+                    and mode != "bbox"
+                ):
                     if mode.startswith("plain"):
                         plain_sz = int(mode.removeprefix("plain"))
                         cx, cy = (x1 + x2) // 2, (y1 + y2) // 2

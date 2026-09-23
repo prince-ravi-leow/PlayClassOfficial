@@ -30,6 +30,8 @@ Usage:
     pixi run -e tracker python -m pipeline.eval_tracker_all evaluate
 """
 
+from __future__ import annotations
+
 import argparse
 import sys
 
@@ -88,6 +90,7 @@ def _ensure_eval_deps() -> None:
 
     mm = _mm
     HOTA = _HOTA
+
 
 VARIANTS = (
     "A_yolo_botsort",
@@ -173,7 +176,7 @@ def iou_xywh(boxes_a: np.ndarray, boxes_b: np.ndarray) -> np.ndarray:
 
 def build_motmetrics_accumulator(
     gt: pd.DataFrame, pred: pd.DataFrame
-) -> "mm.MOTAccumulator":
+) -> mm.MOTAccumulator:
     """motmetrics accumulator at IoU ≥ 0.5, over GT-present frames."""
     acc = mm.MOTAccumulator(auto_id=False)
     gt_by_frame = {fr: g for fr, g in gt.groupby("FrameId")}
@@ -286,7 +289,9 @@ def run(args: argparse.Namespace) -> None:
     ]
     for v in VARIANTS:
         if v not in variants:
-            print(f"[skip] {v}: predictions incomplete under {args.predictions_mot_dir / v}")
+            print(
+                f"[skip] {v}: predictions incomplete under {args.predictions_mot_dir / v}"
+            )
     print(
         f"{len(videos)} videos x {len(variants)} variants = {len(videos) * len(variants)} runs"
     )

@@ -1,6 +1,7 @@
 """BehaviourDataset and BehaviourDataModule for classification training."""
 
 import warnings
+
 from pathlib import Path
 
 import lightning as L
@@ -11,6 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
+
 from loguru import logger
 from torch.utils.data import DataLoader, Dataset, Subset
 

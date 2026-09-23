@@ -21,7 +21,7 @@ max_frames_to_track: 0 # set to 0 to track the entire video
 
 # --- Mode 1: Reuse a previous run's chunk boundaries ---
 reuse_chunk_info: false
-reuse_run_dir: null # e.g. "ext-data/output/results/sam3-hf/20260306_152733_sam3_hf"
+reuse_run_dir: null # e.g. "data/results/tracking/sam3_best/day_28/20260306_152733_sam3_hf"
 
 # --- Mode 3/4: Adaptive or fixed chunking (active when reuse_chunk_info: false) ---
 yolo_scan_only: false

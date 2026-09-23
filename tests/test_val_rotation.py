@@ -6,11 +6,21 @@ from src.classification.model_selection import LOCO, LOVO
 from src.dataset.utils import cage_id_from_video_id
 
 ALL_VIDEOS = [
-    "C1G1D28", "C1G2D28", "C1G3D28",
-    "C2G1D28", "C2G2D28", "C2G3D28",
-    "C3G1D28", "C3G2D28", "C3G3D28",
-    "C4G1D28", "C4G2D28", "C4G3D28",
-    "C5G1D28", "C5G2D28", "C5G3D28",
+    "C1G1D28",
+    "C1G2D28",
+    "C1G3D28",
+    "C2G1D28",
+    "C2G2D28",
+    "C2G3D28",
+    "C3G1D28",
+    "C3G2D28",
+    "C3G3D28",
+    "C4G1D28",
+    "C4G2D28",
+    "C4G3D28",
+    "C5G1D28",
+    "C5G2D28",
+    "C5G3D28",
 ]
 ALL_CAGES = sorted({cage_id_from_video_id(v) for v in ALL_VIDEOS})
 
@@ -45,9 +55,9 @@ class _TestLOO:
             test_cage = cage_id_from_video_id(test)
             val_cage = cage_id_from_video_id(val)
             expected_cage = ALL_CAGES[(ALL_CAGES.index(test_cage) + 1) % len(ALL_CAGES)]
-            assert val_cage == expected_cage, (
-                f"test={test} -> val={val}, expected cage {expected_cage}"
-            )
+            assert (
+                val_cage == expected_cage
+            ), f"test={test} -> val={val}, expected cage {expected_cage}"
 
 
 class TestLOVOValRotation(_TestLOO):

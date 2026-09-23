@@ -61,6 +61,7 @@ data/**
 !data/**/
 !data/**/README.md
 !data/postprocessing/*/*/tracking_postprocessing.json
+!data/results/eval_classification/*.csv
 
 # Legacy / removed
 ext/
@@ -95,6 +96,7 @@ agent-log/
 # Zenodo data prep
 scripts/prepare_zenodo.sh
 playclass_data.tar.gz
+zenodo_response.json
 
 # Precommit stuff
 node_modules/

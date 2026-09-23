@@ -1,6 +1,7 @@
 """Behaviour label processing from Registration protocols Excel files."""
 
 import re
+
 from pathlib import Path
 
 import pandas as pd

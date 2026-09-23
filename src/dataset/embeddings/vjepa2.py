@@ -1,10 +1,12 @@
 """V-JEPA 2/2.1 embedding extraction from tracked objects."""
 
 import warnings
+
 from pathlib import Path
 
 import numpy as np
 import torch
+
 from loguru import logger
 from PIL import Image
 from tqdm import tqdm

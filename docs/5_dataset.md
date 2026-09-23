@@ -13,7 +13,7 @@ The dataset is built in three steps from two sources: the SAM3 tracking outputs
 (`tracking_outputs.parquet` per video) and the registration protocol Excel files
 (behaviour labels + bird identity).
 
-**Step 1** (`pipeline.build_dataset`) is lightweight and produces the canonical
+**Step 1** (`build_dataset`) is lightweight and produces the canonical
 `tracks.parquet` and `labels.parquet`. Steps 2 and 3 are slow and independent of
 each other — run them in parallel if you have the resources.
 
@@ -22,7 +22,7 @@ each other — run them in parallel if you have the resources.
 ## Step 1 — Labels, postprocessing, windows
 
 ```sh
-pixi run python -m pipeline.build_dataset
+pixi run build_dataset
 ```
 
 **What it does:**
@@ -47,7 +47,7 @@ by `(video_id, bird_id, window)`.
 ## Step 2 — Mask features (CPU)
 
 ```sh
-pixi run python -m pipeline.extract_features
+pixi run extract_features
 ```
 
 **What it does:** Decodes the RLE masks in `tracks.parquet` frame-by-frame and

@@ -29,7 +29,7 @@ run_train() {
     echo "=========================================="
     echo " [${RUN}/${TOTAL}] ${LABEL}"
     echo "=========================================="
-    pixi run python -m pipeline.train \
+    pixi run train \
         --input "${INPUT}" \
         --exclude social \
         --device "${DEVICE}" \

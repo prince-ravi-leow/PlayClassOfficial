@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pycocotools.mask as mask_util
 import torch
+
 from loguru import logger
 from PIL import Image
 from tqdm import tqdm

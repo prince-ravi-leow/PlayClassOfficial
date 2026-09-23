@@ -193,12 +193,12 @@ cap.release()
 
 ```sh
 # First run: generates tracking_issues.json + tracking_postprocessing.json
-pixi run python -m pipeline.build_dataset
+pixi run build_dataset
 
 # User fills in "to" values and reviews trim entries
 
 # Second run: applies postprocessing, builds dataset
-pixi run python -m pipeline.build_dataset
+pixi run build_dataset
 ```
 
 Output: `tracks.parquet` and `labels.parquet` saved to `data/dataset/`.
@@ -206,7 +206,7 @@ Output: `tracks.parquet` and `labels.parquet` saved to `data/dataset/`.
 ### Feature extraction (CPU)
 
 ```sh
-pixi run python -m pipeline.extract_features
+pixi run extract_features
 ```
 
 Output: `features_all.parquet` (per-frame) and `features_windowed.parquet`

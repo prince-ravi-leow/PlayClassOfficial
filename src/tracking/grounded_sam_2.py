@@ -420,7 +420,9 @@ def _run_single_video(cfg, run_dir: Path, config_path: Path | None = None) -> No
 
     if max_frames and max_frames > 0:
         total_frames = min(total_frames, max_frames)
-        logger.info(f"  Capped to {total_frames} frames (max_frames_to_track={max_frames})")
+        logger.info(
+            f"  Capped to {total_frames} frames (max_frames_to_track={max_frames})"
+        )
 
     chunks = chunk_video_frames_adaptive(
         total_frames,
@@ -550,7 +552,9 @@ def _run_single_video(cfg, run_dir: Path, config_path: Path | None = None) -> No
                 # frames before its chosen grounding frame.
                 chunk_info["seed_frame_offset"] = int(best_idx)
             else:
-                logger.info("  Running GroundingDINO + SAM2 image predictor on first frame...")
+                logger.info(
+                    "  Running GroundingDINO + SAM2 image predictor on first frame..."
+                )
                 obj_id_to_mask, _labels = _detect_and_segment_first_frame(
                     frame_rgb=chunk_frames[0],
                     text_prompt=text_prompt,
@@ -562,7 +566,9 @@ def _run_single_video(cfg, run_dir: Path, config_path: Path | None = None) -> No
                     device=device,
                 )
                 if not obj_id_to_mask:
-                    logger.error("No objects detected on first frame — aborting pipeline")
+                    logger.error(
+                        "No objects detected on first frame — aborting pipeline"
+                    )
                     return
                 next_obj_id += len(obj_id_to_mask)
                 chunk_info["prompt_type"] = "grounding_dino"
@@ -570,7 +576,9 @@ def _run_single_video(cfg, run_dir: Path, config_path: Path | None = None) -> No
                 chunk_info["seed_frame_offset"] = 0
 
             if not enable_recovery:
-                logger.info("  Freeing GroundingDINO + SAM2 image predictor to reclaim VRAM...")
+                logger.info(
+                    "  Freeing GroundingDINO + SAM2 image predictor to reclaim VRAM..."
+                )
                 del gdino_model, gdino_processor, image_predictor
                 gc.collect()
                 if torch.cuda.is_available():
@@ -691,9 +699,7 @@ def _run_single_video(cfg, run_dir: Path, config_path: Path | None = None) -> No
             f"{elapsed:.2f}s, {fps_achieved:.2f} FPS"
         )
 
-    logger.info(
-        f"All chunks complete: {total_frames_written} total frames processed"
-    )
+    logger.info(f"All chunks complete: {total_frames_written} total frames processed")
 
     chunk_info_path = run_dir / "chunk_info.json"
     with open(chunk_info_path, "w") as f:

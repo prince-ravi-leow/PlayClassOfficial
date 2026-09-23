@@ -7,7 +7,15 @@ arrays; model-specific resizing is handled by the caller.
 
 import numpy as np
 
-CROP_MODES = ("bbox", "plain256", "plain384", "union384", "union512", "darken512", "roi512")
+CROP_MODES = (
+    "bbox",
+    "plain256",
+    "plain384",
+    "union384",
+    "union512",
+    "darken512",
+    "roi512",
+)
 
 
 def compute_union_bbox(bboxes):
@@ -51,7 +59,9 @@ def compute_union_origin(bboxes, frame_h, frame_w, crop_size=512):
     return ox, oy
 
 
-def crop_frame(frame_np, bbox, crop_mode, *, union_origin=None, darken_factor=0.4, patch_grid=16):
+def crop_frame(
+    frame_np, bbox, crop_mode, *, union_origin=None, darken_factor=0.4, patch_grid=16
+):
     """Crop a single frame according to the specified crop mode.
 
     Parameters
@@ -78,23 +88,31 @@ def crop_frame(frame_np, bbox, crop_mode, *, union_origin=None, darken_factor=0.
     h, w = frame_np.shape[:2]
     x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
 
+    if crop_mode == "bbox":
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(w, x2), min(h, y2)
+        if x2 <= x1 or y2 <= y1:
+            return None, None
+        return frame_np[y1:y2, x1:x2], None
+
     # Parse crop size from mode suffix (e.g. "plain256" -> 256, "union512" -> 512)
     _SIZED_PREFIXES = ("plain", "union", "darken", "roi")
     prefix = next((p for p in _SIZED_PREFIXES if crop_mode.startswith(p)), None)
-    if prefix is not None and prefix != "bbox":
-        crop_size = int(crop_mode.removeprefix(prefix))
+    if prefix is None:
+        raise ValueError(f"Unknown crop mode: {crop_mode!r}")
+    crop_size = int(crop_mode.removeprefix(prefix))
 
     if crop_mode.startswith("plain"):
         cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
         half = crop_size // 2
         ox = max(0, min(cx - half, w - crop_size))
         oy = max(0, min(cy - half, h - crop_size))
-        return frame_np[oy:oy + crop_size, ox:ox + crop_size], None
+        return frame_np[oy : oy + crop_size, ox : ox + crop_size], None
 
     if prefix in ("union", "darken", "roi"):
         assert union_origin is not None, f"{crop_mode} requires union_origin"
         ox, oy = union_origin
-        crop = frame_np[oy:oy + crop_size, ox:ox + crop_size]
+        crop = frame_np[oy : oy + crop_size, ox : ox + crop_size]
 
         extra = None
         if prefix == "darken":
@@ -124,13 +142,3 @@ def crop_frame(frame_np, bbox, crop_mode, *, union_origin=None, darken_factor=0.
             }
 
         return crop, extra
-
-    if crop_mode != "bbox":
-        raise ValueError(f"Unknown crop mode: {crop_mode!r}")
-
-    # Default: bbox mode
-    x1, y1 = max(0, x1), max(0, y1)
-    x2, y2 = min(w, x2), min(h, y2)
-    if x2 <= x1 or y2 <= y1:
-        return None, None
-    return frame_np[y1:y2, x1:x2], None

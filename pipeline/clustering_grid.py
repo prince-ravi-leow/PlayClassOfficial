@@ -62,7 +62,7 @@ def grid_search(X):
     grid = pd.DataFrame(rows)
 
     pivot = grid.pivot(index="k", columns="solver", values="silhouette").round(3)
-    print(pivot.to_string())
+    print(pivot.to_markdown())
 
     mean_sil = grid.groupby("solver")["silhouette"].mean()
     best_solver = mean_sil.idxmax()

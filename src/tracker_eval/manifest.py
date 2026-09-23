@@ -26,9 +26,11 @@ Sanity check (`--min-day-28`): the script fails if fewer than N of the 5
 selected videos come from day 28. The joint cross-day ranking has
 historically produced 2 day-28 picks without forcing.
 
-Scan-dir discovery walks `--scan-runs-root` directories containing `yolo_tracking.parquet`. When the same video stem
-appears in multiple timestamped runs, the lexicographically latest run is
-used (timestamp prefix orders correctly).
+Scan-dir discovery walks `--scan-runs-root` (default
+`data/results/tracking/sam3_best`) for `day_{N}/{stem}/`
+directories containing `yolo_tracking.parquet`. When the same video stem
+appears under more than one subdirectory, the lexicographically latest
+subdirectory is used.
 
 Usage:
     pixi run -e tracker python -m pipeline.eval_tracker_all build-manifest
