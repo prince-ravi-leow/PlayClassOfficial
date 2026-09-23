@@ -193,12 +193,12 @@ cap.release()
 
 ```sh
 # First run: generates tracking_issues.json + tracking_postprocessing.json
-pixi run -e sam3-hf build_dataset
+pixi run python -m pipeline.build_dataset
 
 # User fills in "to" values and reviews trim entries
 
 # Second run: applies postprocessing, builds dataset
-pixi run -e sam3-hf build_dataset
+pixi run python -m pipeline.build_dataset
 ```
 
 Output: `tracks.parquet` and `labels.parquet` saved to `data/dataset/`.
@@ -206,7 +206,7 @@ Output: `tracks.parquet` and `labels.parquet` saved to `data/dataset/`.
 ### Feature extraction (CPU)
 
 ```sh
-pixi run -e sam3-hf extract_features
+pixi run python -m pipeline.extract_features
 ```
 
 Output: `features_all.parquet` (per-frame) and `features_windowed.parquet`
@@ -215,11 +215,12 @@ Output: `features_all.parquet` (per-frame) and `features_windowed.parquet`
 ### Embedding extraction (GPU)
 
 ```sh
-pixi run -e sam3-hf extract_embeddings \
-    --video-dir video-data/batch
+pixi run extract_dinov3 \
+    --video-dir data/videos/day_28 data/videos/day_29
 ```
 
-Output: `embeddings.pt` saved to `data/dataset/`.
+Output: `embeddings_dinov3_vitl.pt` saved to `data/dataset/` (see
+[docs/6_embeddings.md](../../docs/6_embeddings.md) for other backbones).
 
 ## Module overview
 

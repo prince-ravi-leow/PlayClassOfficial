@@ -6,22 +6,22 @@ deprecated) cross-validation via ``--cv``.
 Usage::
 
     # Features only (MLP, LOCO default)
-    pixi run -e classifier train --model mlp --input features
+    pixi run train --model mlp --input features
 
     # LOVO (v0.1.0)
-    pixi run -e classifier train --model mlp --input features --cv lovo
+    pixi run train --model mlp --input features --cv lovo
 
     # Mean-pooled embeddings (MLP)
-    pixi run -e classifier train --model mlp --input embeddings
+    pixi run train --model mlp --input embeddings
 
     # Features + embeddings combined
-    pixi run -e classifier train --model mlp --input features+embeddings
+    pixi run train --model mlp --input features+embeddings
 
     # Temporal model on embeddings
-    pixi run -e classifier train --model temporal_mlp --input embeddings
+    pixi run train --model temporal_mlp --input embeddings
 
     # Dry run — first fold, 1 batch, no checkpoints
-    pixi run -e classifier train --model mlp --input features --dry-run
+    pixi run train --model mlp --input features --dry-run
 """
 
 import gc

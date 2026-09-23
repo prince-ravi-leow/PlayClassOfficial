@@ -12,9 +12,9 @@ tables
 
 Usage::
 
-    pixi run -e classifier python -m pipeline.eval_classification evaluate <run_dir>
-    pixi run -e classifier python -m pipeline.eval_classification evaluate --all
-    pixi run -e classifier python -m pipeline.eval_classification tables
+    pixi run eval_classification evaluate <run_dir>
+    pixi run eval_classification evaluate --all
+    pixi run eval_classification tables
 """
 
 import json

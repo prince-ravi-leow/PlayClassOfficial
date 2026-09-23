@@ -1,4 +1,4 @@
-"""Build `data/tracker_eval/video_manifest.csv` from the cached YOLO scan parquets.
+"""Build `data/results/eval_tracking/video_manifest.csv` from the cached YOLO scan parquets.
 
 Ranks the 30 candidate videos (5 cages × 3 groups × 2 days) by a composite
 difficulty score computed across 7 proxies derived from
@@ -26,9 +26,7 @@ Sanity check (`--min-day-28`): the script fails if fewer than N of the 5
 selected videos come from day 28. The joint cross-day ranking has
 historically produced 2 day-28 picks without forcing.
 
-Scan-dir discovery walks `--scan-runs-root` (default
-`ext-data/output/results/sam3-hf`) for `{YYYYMMDD_HHMMSS}_sam3_hf/{stem}/`
-directories containing `yolo_tracking.parquet`. When the same video stem
+Scan-dir discovery walks `--scan-runs-root` directories containing `yolo_tracking.parquet`. When the same video stem
 appears in multiple timestamped runs, the lexicographically latest run is
 used (timestamp prefix orders correctly).
 
@@ -38,12 +36,11 @@ Usage:
 
 import argparse
 import re
-
 from pathlib import Path
 
 import pandas as pd
 
-from .paths import MANIFEST_CSV, RAW_VIDEO_ROOT, ROOT, SCAN_RUNS_ROOT
+from .paths import MANIFEST_CSV, RAW_VIDEO_ROOT, SCAN_RUNS_ROOT
 
 STEM_PATTERN = re.compile(r"^(?P<cage>C\d)(?P<group>G\d)_Test_\d+_day_(?P<day>\d+)_")
 
@@ -102,10 +99,14 @@ def discover_scan_dirs(scan_runs_root: Path) -> dict[str, Path]:
 
 def compute_difficulty_proxies(scan_dir: Path) -> dict[str, float]:
     pf = pd.read_parquet(scan_dir / "metrics" / "yolo_scan_metrics.parquet")
-    summary = pd.read_parquet(scan_dir / "metrics" / "yolo_scan_summary.parquet").iloc[0]
+    summary = pd.read_parquet(scan_dir / "metrics" / "yolo_scan_summary.parquet").iloc[
+        0
+    ]
     duration_min = float(summary["video_duration_seconds"]) / 60.0
 
-    finite_mcd = pf.loc[pf["mean_centroid_distance"] != float("inf"), "mean_centroid_distance"]
+    finite_mcd = pf.loc[
+        pf["mean_centroid_distance"] != float("inf"), "mean_centroid_distance"
+    ]
     return {
         "frac_high_occlusion": float(pf["is_high_occlusion"].mean()),
         "mean_overlapping_pairs": float(pf["num_overlapping_pairs"].mean()),
@@ -164,17 +165,15 @@ def run(args: argparse.Namespace) -> None:
             continue
         proxies = compute_difficulty_proxies(scan_dir)
         raw_video_path = args.raw_video_root / f"day_{parsed['day']}" / f"{stem}.mp4"
-        rows.append(
-            {
-                "video_id": f"{parsed['cage']}{parsed['group']}_day_{parsed['day']}",
-                "cage": parsed["cage"],
-                "group": parsed["group"],
-                "day": parsed["day"],
-                "path": str(raw_video_path.relative_to(ROOT)),
-                "scan_dir": str(scan_dir.relative_to(ROOT)),
-                **proxies,
-            }
-        )
+        rows.append({
+            "video_id": f"{parsed['cage']}{parsed['group']}_day_{parsed['day']}",
+            "cage": parsed["cage"],
+            "group": parsed["group"],
+            "day": parsed["day"],
+            "path": str(raw_video_path),
+            "scan_dir": str(scan_dir),
+            **proxies,
+        })
 
     df = pd.DataFrame(rows)
     counts_by_day = df["day"].value_counts().sort_index().to_dict()
@@ -194,9 +193,10 @@ def run(args: argparse.Namespace) -> None:
         df.groupby("cage")["difficulty"].rank(method="min", ascending=False).astype(int)
     )
     df["selected"] = df["rank_in_cage"] == 1
-    df["notes"] = df["selected"].map(
-        {True: "hardest group in cage across both days", False: ""}
-    )
+    df["notes"] = df["selected"].map({
+        True: "hardest group in cage across both days",
+        False: "",
+    })
 
     n_day_28 = int(((df["selected"]) & (df["day"] == 28)).sum())
     if n_day_28 < args.min_day_28:

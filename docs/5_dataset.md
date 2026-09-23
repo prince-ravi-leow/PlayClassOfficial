@@ -1,9 +1,9 @@
 # Dataset Build
 
-| Script                       | Description                                                          |
-| ---------------------------- | -------------------------------------------------------------------- |
-| `script/build_dataset.py`    | Postprocess tracking outputs, match bird IDs, build dataset parquets |
-| `script/extract_features.py` | Extract mask features + window summaries from dataset tracks (CPU)   |
+| Script                         | Description                                                          |
+| ------------------------------ | -------------------------------------------------------------------- |
+| `pipeline/build_dataset.py`    | Postprocess tracking outputs, match bird IDs, build dataset parquets |
+| `pipeline/extract_features.py` | Extract mask features + window summaries from dataset tracks (CPU)   |
 
 ---
 
@@ -13,7 +13,7 @@ The dataset is built in three steps from two sources: the SAM3 tracking outputs
 (`tracking_outputs.parquet` per video) and the registration protocol Excel files
 (behaviour labels + bird identity).
 
-**Step 1** (`build_dataset`) is lightweight and produces the canonical
+**Step 1** (`pipeline.build_dataset`) is lightweight and produces the canonical
 `tracks.parquet` and `labels.parquet`. Steps 2 and 3 are slow and independent of
 each other — run them in parallel if you have the resources.
 
@@ -22,7 +22,7 @@ each other — run them in parallel if you have the resources.
 ## Step 1 — Labels, postprocessing, windows
 
 ```sh
-pixi run -e dataset build_dataset
+pixi run python -m pipeline.build_dataset
 ```
 
 **What it does:**
@@ -47,7 +47,7 @@ by `(video_id, bird_id, window)`.
 ## Step 2 — Mask features (CPU)
 
 ```sh
-pixi run -e dataset extract_features
+pixi run python -m pipeline.extract_features
 ```
 
 **What it does:** Decodes the RLE masks in `tracks.parquet` frame-by-frame and
@@ -87,10 +87,10 @@ CV, q10, q90 → `features_windowed.parquet`).
 
 ```sh
 # DINOv3 ViT-L (default)
-pixi run -e embeddings extract_embeddings_dinov3
+pixi run extract_dinov3
 
 # V-JEPA 2.1 ViT-L temporal
-pixi run -e embeddings python -m script.extract_embeddings_vjepa2 --temporal
+pixi run extract_vjepa2 --temporal
 
 # VideoPrism Base temporal
 pixi run -e videoprism extract_videoprism --temporal

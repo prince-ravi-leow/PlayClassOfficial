@@ -38,7 +38,7 @@ Runs the k × solver silhouette grid for the dropna variant and writes
 before the notebook:
 
 ```sh
-pixi run -e classifier python -m pipeline.clustering_grid
+pixi run clustering_grid
 ```
 
 ## Classification evaluation and tables
@@ -47,12 +47,12 @@ Assemble the segment sweep (Supp Table 3) and ablation (Supp Table 4) CSVs from
 existing `loco_summary.csv` files (no GPU needed):
 
 ```sh
-pixi run -e classifier python -m pipeline.eval_classification tables
+pixi run eval_classification tables
 ```
 
 To backfill per-fold confusion matrices, recall, and per-sample predictions from
 checkpoints (requires GPU):
 
 ```sh
-pixi run -e classifier python -m pipeline.eval_classification evaluate --all
+pixi run eval_classification evaluate --all
 ```

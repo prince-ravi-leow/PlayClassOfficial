@@ -18,12 +18,12 @@ Steps:
 Typical workflow::
 
     # First run: generates JSONs in data/postprocessing/
-    pixi run -e tracker python -m pipeline.build_dataset
+    pixi run python -m pipeline.build_dataset
 
     # Manually fill in "to" values in each tracking_postprocessing.json
 
     # Second run: validates remaps, builds dataset
-    pixi run -e tracker python -m pipeline.build_dataset
+    pixi run python -m pipeline.build_dataset
 """
 
 import json
@@ -162,6 +162,7 @@ def process_tracking_subdir(tracking_dir, pp_dir, bird_info):
 
 
 def save_data(save_dict, output_dir):
+    """Save a dict of DataFrames/JSON to an output directory (parquet or JSON by extension)."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     for fname, data in save_dict.items():

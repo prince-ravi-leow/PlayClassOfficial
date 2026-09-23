@@ -10,7 +10,7 @@ build.
 **Run 1 — generate templates:**
 
 ```sh
-pixi run -e tracker python -m pipeline.build_dataset
+pixi run python -m pipeline.build_dataset
 ```
 
 Reads `tracking_outputs.parquet` from `--tracking-dir` (default:
@@ -32,7 +32,7 @@ script stops and tells you which entries need attention.
 **Run 2 — build the dataset:**
 
 ```sh
-pixi run -e tracker python -m pipeline.build_dataset
+pixi run python -m pipeline.build_dataset
 ```
 
 ---

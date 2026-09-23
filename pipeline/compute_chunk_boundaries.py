@@ -1,7 +1,12 @@
 """Recompute chunk boundary metrics from an existing run directory.
 
 Given a run dir that contains ``yolo_tracking.parquet``, recomputes per-frame
-metrics, adaptive chunk boundaries, and saves updated outputs in-place.
+metrics, adaptive chunk boundaries, and saves updated outputs in-place:
+
+- metrics/yolo_scan_metrics.parquet, metrics/yolo_scan_summary.parquet
+- chunk_info.json
+- visualizations/yolo_scan_overview.png
+- visualizations/chunk_boundaries.png (frame screengrab grid, requires video)
 
 Usage::
 
@@ -103,6 +108,16 @@ def parse_args():
         "--config",
         default=None,
         help="Override YAML config; defaults to the .yaml found in --run-dir",
+    )
+    parser.add_argument(
+        "--video-path",
+        default=None,
+        help="Explicit path to source video (for boundary frame grid)",
+    )
+    parser.add_argument(
+        "--video-dir",
+        default=None,
+        help="Directory containing source videos (matched by run dir name)",
     )
     return parser.parse_args()
 
@@ -265,16 +280,25 @@ def main():
     logger.info(f"Saved: {viz_dir / 'yolo_scan_overview.png'}")
 
     # -------------------------------------------------------------------------
-    # 11. Generate chunk_boundaries_<run>.png (N rows × 2 cols: start + end)
+    # 11. Generate chunk_boundaries.png (N rows × 2 cols: start + end)
     # -------------------------------------------------------------------------
-    video_path = cfg.get("video_path")
-    plot_chunk_boundary_frames(
-        chunk_info=chunk_info,
-        video_path=video_path,
-        fps=fps,
-        yolo_scan_df=yolo_scan_metrics_df,
-        save_path=viz_dir / f"chunk_boundaries_{run_dir.stem}.png",
+    video_path = _resolve_video_path(
+        run_dir,
+        video_path_override=Path(args.video_path) if args.video_path else None,
+        video_dir_override=Path(args.video_dir) if args.video_dir else None,
     )
+    if video_path is not None:
+        boundary_path = viz_dir / "chunk_boundaries.png"
+        plot_chunk_boundary_frames(
+            chunk_info=chunk_info,
+            video_path=video_path,
+            fps=fps,
+            yolo_scan_df=yolo_scan_metrics_df,
+            save_path=boundary_path,
+        )
+        logger.info(f"Saved: {boundary_path}")
+    else:
+        logger.warning("Skipping chunk_boundaries.png (no video found)")
 
 
 if __name__ == "__main__":

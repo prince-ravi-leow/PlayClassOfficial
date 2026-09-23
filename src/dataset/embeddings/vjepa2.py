@@ -9,12 +9,7 @@ from loguru import logger
 from PIL import Image
 from tqdm import tqdm
 
-from src.dataset.crops import (
-    compute_union_origin,
-    crop_frame,
-    needs_mask,
-    union_crop_size,
-)
+from src.dataset.crops import compute_union_origin, crop_frame
 from src.utils.io import load_video_frames_torchcodec as load_video_frames
 
 _HUB_MODEL_NAMES = {

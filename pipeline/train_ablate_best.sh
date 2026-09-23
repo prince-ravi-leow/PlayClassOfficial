@@ -3,7 +3,7 @@
 # Each run changes one hyperparameter from the reference config.
 #
 # Usage:
-#   pixi run ablate-best [-- --device cuda:0 --dry-run]
+#   pixi run train_ablate_best [--device cuda:0] [--dry-run]
 #   bash pipeline/train_ablate_best.sh [--device cuda:0] [--dry-run]
 
 set -euo pipefail

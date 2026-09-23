@@ -1,3 +1,9 @@
+"""Neural network backbones for play-behaviour classification.
+
+Provides non-temporal (SimpleLinear, SimpleMLP) and temporal (TemporalMLP,
+TemporalCNNv2) architectures. MODEL_REGISTRY maps CLI names to (class, temporal_flag).
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -17,6 +23,8 @@ class GatedAttentionPool(nn.Module):
 
 
 class SimpleLinear(nn.Module):
+    """Single linear layer classifier (linear probe)."""
+
     def __init__(self, d_input, n_classes):
         super().__init__()
         self.fc = nn.Linear(d_input, n_classes)
@@ -27,6 +35,8 @@ class SimpleLinear(nn.Module):
 
 
 class SimpleMLP(nn.Module):
+    """Two-layer MLP classifier with ReLU and dropout."""
+
     def __init__(self, d_input, n_classes, d_hidden=64, dropout=0.0):
         super().__init__()
         self.net = nn.Sequential(

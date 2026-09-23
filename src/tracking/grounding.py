@@ -8,7 +8,6 @@ frame, and matching grounding IDs across chunks.
 from typing import Callable
 
 import numpy as np
-
 from loguru import logger
 
 from ..utils.memory import free_gpu_memory
@@ -95,9 +94,9 @@ def find_best_grounding_frame(
         masks_list, boxes_list, object_ids_list = get_all_objects_from_results(results)
         if len(object_ids_list) < min_objects:
             continue
-        masks_array = np.stack(
-            [m.squeeze(0) if m.ndim == 3 and m.shape[0] == 1 else m for m in masks_list]
-        ).astype(bool)
+        masks_array = np.stack([
+            m.squeeze(0) if m.ndim == 3 and m.shape[0] == 1 else m for m in masks_list
+        ]).astype(bool)
         max_iou = compute_max_pairwise_iou(masks_array)
 
         scores = results.get("scores")
@@ -111,9 +110,14 @@ def find_best_grounding_frame(
             else:
                 mean_score = 0.0
 
-        candidates.append(
-            (frame_idx, masks_list, boxes_list, object_ids_list, max_iou, mean_score)
-        )
+        candidates.append((
+            frame_idx,
+            masks_list,
+            boxes_list,
+            object_ids_list,
+            max_iou,
+            mean_score,
+        ))
 
     if not candidates:
         return None, [], [], []
@@ -135,7 +139,8 @@ def match_grounding_ids_to_previous(
     prev_masks: list,
     prev_ids: list,
     iou_threshold: float = 0.10,
-) -> dict[int, int]:
+    return_matched_ids: bool = False,
+) -> dict[int, int] | tuple[dict[int, int], set[int]]:
     """
     Greedy IoU-based assignment of grounding IDs to previous-chunk IDs.
 
@@ -144,9 +149,16 @@ def match_grounding_ids_to_previous(
     their original value if it does not collide with an already-mapped ID;
     otherwise they are assigned a fresh ID to avoid silent key collisions in
     grounding_prompt_points.
+
+    Args:
+        return_matched_ids: When True, also return the set of grounding IDs
+            that were genuinely matched to a previous-chunk ID (as opposed to
+            passed through unmatched). Callers use this to compute the match
+            ratio reported in chunk_info.
     """
     if not grounding_masks or not prev_masks:
-        return {int(pid): int(pid) for pid in grounding_ids}
+        id_map = {int(pid): int(pid) for pid in grounding_ids}
+        return (id_map, set()) if return_matched_ids else id_map
 
     def _to_bool(m):
         arr = m.squeeze(0) if m.ndim == 3 and m.shape[0] == 1 else m
@@ -193,4 +205,82 @@ def match_grounding_ids_to_previous(
                 claimed.add(next_fresh)
                 next_fresh += 1
 
+    if return_matched_ids:
+        matched_ids = {int(grounding_ids[i]) for i in assigned_gs}
+        return id_map, matched_ids
     return id_map
+
+
+def find_best_overlap_prev_frame(
+    prev_chunk_outputs: dict,
+    grounding_masks: list,
+    min_objects: int = 3,
+    max_lookback: int = 50,
+) -> tuple[int | None, list, list, list]:
+    """
+    Scan backward through previous chunk outputs and find the frame whose masks
+    have the highest total greedy IoU overlap with the current grounding masks.
+
+    For each candidate frame with >= min_objects, computes a greedy total IoU:
+    for each grounding mask, find the best IoU with any prev mask, then sum.
+    Returns the frame with the highest total overlap.
+
+    Drop-in replacement for find_frame_with_enough_objects() — same return
+    signature: (frame_idx, masks_list, boxes_list, object_ids_list).
+    """
+    if not grounding_masks:
+        return None, [], [], []
+
+    def _to_bool(m):
+        arr = m.squeeze(0) if m.ndim == 3 and m.shape[0] == 1 else m
+        return arr.astype(bool)
+
+    gr_bool = [_to_bool(m) for m in grounding_masks]
+
+    sorted_frames = sorted(prev_chunk_outputs.keys(), reverse=True)
+    candidates = []
+
+    for frame_idx in sorted_frames[:max_lookback]:
+        masks_list, boxes_list, object_ids_list = get_all_objects_from_results(
+            prev_chunk_outputs[frame_idx]
+        )
+        if len(object_ids_list) < min_objects:
+            continue
+
+        prev_bool = [_to_bool(m) for m in masks_list]
+
+        # Greedy total IoU: for each grounding mask, find best IoU with any prev mask
+        total_iou = 0.0
+        for gm in gr_bool:
+            best_iou = 0.0
+            for pm in prev_bool:
+                inter = float((gm & pm).sum())
+                union = float((gm | pm).sum())
+                iou = inter / union if union > 0 else 0.0
+                if iou > best_iou:
+                    best_iou = iou
+            total_iou += best_iou
+
+        candidates.append((
+            total_iou,
+            frame_idx,
+            masks_list,
+            boxes_list,
+            object_ids_list,
+        ))
+
+    if not candidates:
+        logger.warning(
+            f"[best-overlap] no frame with >= {min_objects} objects "
+            f"in last {max_lookback} frames"
+        )
+        return None, [], [], []
+
+    # Pick highest total overlap
+    candidates.sort(key=lambda x: -x[0])
+    best = candidates[0]
+    logger.debug(
+        f"[best-overlap] selected frame {best[1]} with total_iou={best[0]:.3f} "
+        f"(searched {len(candidates)} candidate frames)"
+    )
+    return best[1], best[2], best[3], best[4]

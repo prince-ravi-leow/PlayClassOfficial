@@ -6,8 +6,8 @@ Separate from ``build_dataset.py`` because it requires GPU + model loading
 
 Usage::
 
-    pixi run -e sam3-hf extract-embeddings \
-        --video-dir data/video/batch data/video/batch2
+    pixi run extract_dinov3 \
+        --video-dir data/videos/day_28 data/videos/day_29
 """
 
 import sys

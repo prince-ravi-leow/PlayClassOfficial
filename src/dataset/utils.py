@@ -1,3 +1,9 @@
+"""Shared helpers for the dataset package.
+
+Video ID parsing, FPS lookup, time formatting, video path resolution, and
+embedding-label alignment checks used across the three dataset pipeline steps.
+"""
+
 import os
 import re
 from pathlib import Path

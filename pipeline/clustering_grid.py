@@ -3,7 +3,7 @@
 Writes the grid CSV and scaled array to the clustering output directory.
 Run once per dataset release; the figure notebook reads the outputs.
 
-    pixi run -e classifier python -m pipeline.clustering_grid
+    pixi run clustering_grid
 """
 
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
@@ -62,7 +62,7 @@ def grid_search(X):
     grid = pd.DataFrame(rows)
 
     pivot = grid.pivot(index="k", columns="solver", values="silhouette").round(3)
-    print(pivot.to_markdown())
+    print(pivot.to_string())
 
     mean_sil = grid.groupby("solver")["silhouette"].mean()
     best_solver = mean_sil.idxmax()

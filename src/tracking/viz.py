@@ -51,6 +51,7 @@ def overlay_masks(image, masks):
 
 
 def convert_numpy_to_pil(array):
+    """Convert a numpy array to a PIL RGB Image."""
     return Image.fromarray(np.uint8(array)).convert("RGB")
 
 
@@ -1320,6 +1321,9 @@ def plot_chunk_boundary_frames(
     save_path : str or Path, optional
         Path to save the PNG. If None the plot is shown interactively.
     """
+    if video_path is None:
+        logger.warning("plot_chunk_boundary_frames: no video_path provided, skipping")
+        return
     video_path = Path(video_path)
     if not video_path.exists():
         logger.warning(

@@ -3,7 +3,7 @@
 # checkpoints, PyTorch, editable packages).
 #
 # Usage:
-#   pixi run -e gs2 bash script/setup_gs2.sh
+#   pixi run -e gs2 setup_gs2
 
 set -euo pipefail
 

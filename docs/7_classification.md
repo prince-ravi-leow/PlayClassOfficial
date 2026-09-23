@@ -7,26 +7,23 @@ morphokinematic features + V-JEPA 2.1 embeddings).
 
 ## Commands
 
-- **Command:** `pixi run -e classifier train [options]`
+- **Command:** `pixi run train [options]`
 - **Requires:** dataset pipeline outputs (steps 4–5)
 - **Inputs:** `data/dataset/` (tracks, features, embeddings)
 - **Outputs:** `data/results/eval_classification/{timestamp}_{model}/`
 
 ```sh
 # Features only (MLP baseline)
-pixi run -e classifier train --model mlp --input features --exclude social
+pixi run train --model mlp --input features --exclude social
 
 # Best model: TemporalCNNv2 + V-JEPA 2.1 temporal embeddings
-pixi run -e classifier train \
+pixi run train \
     --model temporal_cnn2 \
     --input features+embeddings_vjepa21_vitl_temporal \
     --exclude social --dropout 0.0 --n-segments 24
 
-# XGBoost baseline
-pixi run -e classifier train_xgboost --exclude social
-
 # Dry run (first fold only, 1 batch, no checkpoints)
-pixi run -e classifier train --model mlp --input features --dry-run
+pixi run train --model mlp --input features --dry-run
 ```
 
 ## Models
@@ -90,11 +87,11 @@ checkpoints, or assemble the segment sweep and ablation tables:
 
 ```sh
 # Evaluate a single run (produces CMs, recall, predictions.csv)
-pixi run -e classifier python -m pipeline.eval_classification evaluate <run_dir>
+pixi run eval_classification evaluate <run_dir>
 
 # Evaluate all runs (skips those with existing outputs)
-pixi run -e classifier python -m pipeline.eval_classification evaluate --all
+pixi run eval_classification evaluate --all
 
 # Assemble Supp Tables 3 and 4 (no GPU needed)
-pixi run -e classifier python -m pipeline.eval_classification tables
+pixi run eval_classification tables
 ```

@@ -1,10 +1,10 @@
 """Single source of truth for all paths used by the tracker-eval pipeline.
 
-Data-side paths host small, version-controlled artefacts (manifests,
-keyframe schedules, per-variant YAML configs under `data/tracker_eval/config/`,
-results CSVs). Ext-data-side paths host heavy artefacts (CVAT Backup,
-tracker run parquets, source MP4 clips, MOT files) — symlinked at
-`ext-data/`; a regular directory on local dev.
+Small artefacts (video manifest, keyframe schedule, results CSVs) live under
+`data/results/eval_tracking/`; heavy ones (CVAT backup, ground-truth and
+prediction MOT files) under its `tracker_benchmark/` subdir. Tracker run
+outputs are read from `data/results/tracking/{config_stem}/`, and the
+per-variant YAML configs live in `config/`.
 
 Each subcommand's CLI accepts `--manifest` / `--out` / `--predictions-root`
 overrides; these constants supply the defaults.
@@ -13,7 +13,7 @@ overrides; these constants supply the defaults.
 from pathlib import Path
 from typing import Final
 
-from src._config import DEFAULT_RESULTS_DIR, DEFAULT_TRACKING_DIR
+from src._config import DEFAULT_RESULTS_DIR, DEFAULT_TRACKING_DIR, DEFAULT_VIDEO_DIR
 
 ROOT: Final = Path(__file__).resolve().parents[2]
 
@@ -46,3 +46,7 @@ TRACKER_RUNS_YOLO_BOTSORT: Final = f"{DEFAULT_TRACKING_DIR}/yolo_botsort"
 TRACKER_RUNS_YOLO_BOTSORT_REID_ON: Final = (
     f"{DEFAULT_TRACKING_DIR}/yolo_botsort_reid_on"
 )
+
+# build-manifest inputs: YOLO scans (`day_{N}/{video_stem}/`) + source videos
+SCAN_RUNS_ROOT: Final = TRACKER_RUNS_SAM3_BEST
+RAW_VIDEO_ROOT: Final = DEFAULT_VIDEO_DIR

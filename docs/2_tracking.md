@@ -64,6 +64,22 @@ data/results/tracking/{config_stem}/
 | **Manual**   | `manual_chunk_frames: [[0,375], ...]`      | Explicit `[start, end]` frame pairs.                                                                     |
 | **Reuse**    | `reuse_chunk_info: true` + `reuse_run_dir` | Load boundaries from a previous run.                                                                     |
 
+## Grounding (SAM 3)
+
+At each chunk boundary, a text prompt (`text_prompt: "bird"`) searches
+`grounding_frames` frames for the best initialisation frame. IDs are matched
+across chunks by mask IoU (`id_match_iou_threshold`). If grounding fails,
+falls back to the previous chunk's masks (`fallback_to_prev_chunk`).
+
+Optional keys (off by default in every config):
+
+| Key                                              | Effect                                                                                                                              |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `text_grounding.fill_grounding_gap: true`        | Fill the frames before the chosen grounding frame with the grounding model's own outputs. The day-28 production runs used this.    |
+| `text_grounding.best_overlap_id_matching: true`  | Pick the previous-chunk reference frame by mask overlap instead of the latest frame with enough objects. Legacy; no production run. |
+| `text_grounding.id_match_min_ratio` (0.5)        | Chunks whose ID match ratio falls below this are flagged with `id_discontinuity` in `chunk_info.json`.                              |
+| `frame_loader` (`torchcodec`)                    | Frame decoder: `torchcodec`, `cv2_seek` or `cv2_sequential`. The day-28 runs predate torchcodec and need `cv2_seek` to reproduce.   |
+
 ## Recomputing chunk boundaries
 
 Recompute YOLO scan metrics and chunk boundaries from an existing run without

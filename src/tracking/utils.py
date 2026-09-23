@@ -14,6 +14,7 @@ from loguru import logger
 
 
 def to_numpy(x):
+    """Convert a torch tensor (or array-like) to a numpy array."""
     if hasattr(x, "cpu"):
         x = x.cpu()
     if hasattr(x, "numpy"):
@@ -278,6 +279,7 @@ def reseed_tracker_memory(
 
 
 def process_tracking_outputs(outputs_per_frame):
+    """Convert per-frame SAM3 output dicts to a parquet-ready DataFrame with RLE masks."""
     index_tuples = []
     bboxes = []
     counts_list = []

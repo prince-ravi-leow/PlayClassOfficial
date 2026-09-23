@@ -1,4 +1,4 @@
-"""Tracking pipeline."""
+"""Tracking pipeline"""
 
 import json
 import shutil
@@ -14,6 +14,7 @@ from accelerate import Accelerator
 from loguru import logger
 from omegaconf import OmegaConf
 from simpler_timer import SimplerTimer
+from tqdm import tqdm
 from transformers import (
     Sam3TrackerVideoConfig,
     Sam3TrackerVideoModel,
@@ -39,6 +40,7 @@ from .chunking import (
 )
 from .grounding import (
     find_best_grounding_frame,
+    find_best_overlap_prev_frame,
     match_grounding_ids_to_previous,
     run_grounding,
 )
@@ -51,13 +53,14 @@ from .metrics import (
     per_run_metrics_to_multiindex_df,
     summary_metrics_to_df,
 )
-from .._config import DEFAULT_TRACKER_CONFIG
+from .._config import DEFAULT_TRACKER_CONFIG, DEFAULT_TRACKING_DIR
 from .scan import run_yolo_scan, yolo_scan_to_df
 from .utils import (
     extract_equidistant_points_from_masks,
     find_frame_with_enough_objects,
     process_tracking_outputs,
     reseed_tracker_memory,
+    to_numpy,
 )
 from .viz import annotate_video_with_sam3_outputs, generate_all_visualizations
 
@@ -68,6 +71,24 @@ torch.backends.cudnn.allow_tf32 = True
 # ---------------------------------------------------------------------------
 # Per-chunk processing helpers
 # ---------------------------------------------------------------------------
+
+
+def _remap_output_ids(frame_output: dict, id_map: dict) -> dict:
+    """Remap object IDs in a single frame's output dict (object_ids, tracker scores, removed/suppressed sets)."""
+    out = dict(frame_output)
+    old_ids = to_numpy(out["object_ids"])
+    new_ids = np.array([id_map.get(int(oid), int(oid)) for oid in old_ids])
+    out["object_ids"] = new_ids
+
+    if "obj_id_to_tracker_score" in out and out["obj_id_to_tracker_score"]:
+        out["obj_id_to_tracker_score"] = {
+            id_map.get(int(k), int(k)): v
+            for k, v in out["obj_id_to_tracker_score"].items()
+        }
+    for set_key in ("removed_obj_ids", "suppressed_obj_ids"):
+        if set_key in out and out[set_key]:
+            out[set_key] = {id_map.get(int(x), int(x)) for x in out[set_key]}
+    return out
 
 
 def _process_video_chunk(chunk_frames, start_idx, cfg, device):
@@ -135,9 +156,12 @@ def _process_video_chunk(chunk_frames, start_idx, cfg, device):
     total_frames = len(chunk_frames)
     outputs_per_frame = {}
     with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
-        for model_outputs in model.propagate_in_video_iterator(
-            inference_session=inference_session,
-            max_frame_num_to_track=total_frames,
+        for model_outputs in tqdm(
+            model.propagate_in_video_iterator(
+                inference_session=inference_session,
+                max_frame_num_to_track=total_frames,
+            ),
+            total=total_frames,
         ):
             processed_outputs = processor.postprocess_outputs(
                 inference_session, model_outputs
@@ -152,12 +176,6 @@ def _process_video_chunk(chunk_frames, start_idx, cfg, device):
             )
             global_frame_idx = start_idx + model_outputs.frame_idx
             outputs_per_frame[global_frame_idx] = processed_outputs
-            local_frame_idx = model_outputs.frame_idx
-            if local_frame_idx % 25 == 0 or local_frame_idx == total_frames - 1:
-                logger.info(
-                    f"  [text] frame {local_frame_idx + 1}/{total_frames} "
-                    f"({100 * (local_frame_idx + 1) / total_frames:.0f}%)"
-                )
 
     # Cleanup
     if hasattr(inference_session, "reset_inference_session"):
@@ -257,11 +275,10 @@ def _process_tracker_chunk(chunk_frames, start_idx, all_prompt_points, cfg, devi
     )
 
     # Process all frames
-    total_frames = len(chunk_frames)
     outputs_per_frame = {}
     with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
         for tracker_output in model.propagate_in_video_iterator(
-            inference_session, show_progress_bar=False
+            inference_session, show_progress_bar=True
         ):
             # Post-process masks
             video_res_masks = processor.post_process_masks(
@@ -364,11 +381,6 @@ def _process_tracker_chunk(chunk_frames, start_idx, all_prompt_points, cfg, devi
                 "scores": active_scores,
                 "obj_id_to_tracker_score": obj_id_to_tracker_score,
             }
-            if local_frame_idx % 25 == 0 or local_frame_idx == total_frames - 1:
-                logger.info(
-                    f"  [tracker] frame {local_frame_idx + 1}/{total_frames} "
-                    f"({100 * (local_frame_idx + 1) / total_frames:.0f}%)"
-                )
 
     # Cleanup
     if hasattr(inference_session, "reset_inference_session"):
@@ -388,7 +400,7 @@ def _run_single_video(cfg, run_dir: Path, config_path: Path | None = None):
     metrics_dir = run_dir / "metrics"
     metrics_dir.mkdir(parents=True, exist_ok=True)
 
-    job_type = cfg.job_type
+    job_type = cfg.get("job_type", "tracker")
     log_file = setup_logger(run_dir, job_type=job_type)
 
     logger.info("=" * 60)
@@ -723,12 +735,29 @@ def _run_single_video(cfg, run_dir: Path, config_path: Path | None = None):
     results_path = run_dir / "tracking_outputs.parquet"
     grounding_results_path = run_dir / "grounding_outputs.parquet"
 
+    frame_loader = str(cfg.get("frame_loader", "torchcodec"))
+    if frame_loader not in FRAME_LOADERS:
+        raise ValueError(
+            f"Unknown frame_loader {frame_loader!r}; expected one of {FRAME_LOADERS}"
+        )
+    if frame_loader != "torchcodec":
+        logger.warning(
+            f"Frame loader: {frame_loader} (not the default torchcodec) — "
+            f"decoded frames will differ from a default run"
+        )
+    else:
+        logger.info(f"Frame loader: {frame_loader}")
+
     for chunk_idx, (start_idx, end_idx, chunk_type) in enumerate(chunks):
         # Load only this chunk's frames from disk — avoids holding the full video in RAM
         global_chunk_start = start_frame + start_idx
         global_chunk_end = start_frame + end_idx
-        chunk_frames = load_video_frames_torchcodec(
-            video_path, global_chunk_start, global_chunk_end, device=str(device)
+        chunk_frames = load_video_frames(
+            video_path,
+            global_chunk_start,
+            global_chunk_end,
+            loader=frame_loader,
+            device=str(device),
         )
         num_frames = len(chunk_frames)
 
@@ -763,6 +792,7 @@ def _run_single_video(cfg, run_dir: Path, config_path: Path | None = None):
         use_tracker = False
         all_prompt_points = {}
         grounding_frame_offset = 0  # local offset into chunk_frames for tracker init
+        grounding_prefix_outputs = {}  # gap fill, see fill_grounding_gap below
 
         grounding_cfg = cfg.get("text_grounding", {})
         grounding_enabled = grounding_cfg.get("enabled", False)
@@ -816,16 +846,39 @@ def _run_single_video(cfg, run_dir: Path, config_path: Path | None = None):
                 if previous_chunk_outputs is not None and grounding_cfg.get(
                     "id_matching", True
                 ):
-                    _, prev_masks_for_iou, _, prev_ids_for_iou = (
-                        find_frame_with_enough_objects(
-                            previous_chunk_outputs,
-                            # min_objects=3,
-                            min_objects=cfg.min_objects_for_tracking,
-                            max_lookback=cfg.max_lookback_frames,
+                    # best_overlap_id_matching defaults to FALSE
+                    if grounding_cfg.get("best_overlap_id_matching", False):
+                        # Score each candidate prev frame by greedy IoU against
+                        # the grounding masks instead of taking the first frame
+                        # with enough objects.
+                        dynamic_lookback = max(
+                            cfg.max_lookback_frames,
+                            len(previous_chunk_outputs) // 2,
                         )
+                        prev_ref_frame, prev_masks_for_iou, _, prev_ids_for_iou = (
+                            find_best_overlap_prev_frame(
+                                previous_chunk_outputs,
+                                gr_out_masks,
+                                min_objects=cfg.min_objects_for_tracking,
+                                max_lookback=dynamic_lookback,
+                            )
+                        )
+                        chunk_info["best_overlap_used"] = True
+                    else:
+                        prev_ref_frame, prev_masks_for_iou, _, prev_ids_for_iou = (
+                            find_frame_with_enough_objects(
+                                previous_chunk_outputs,
+                                min_objects=cfg.min_objects_for_tracking,
+                                max_lookback=cfg.max_lookback_frames,
+                            )
+                        )
+                        chunk_info["best_overlap_used"] = False
+                    chunk_info["prev_reference_frame_idx"] = (
+                        int(prev_ref_frame) if prev_ref_frame is not None else None
                     )
+
                     if prev_masks_for_iou:
-                        id_map = match_grounding_ids_to_previous(
+                        id_map, matched_grounding_ids = match_grounding_ids_to_previous(
                             gr_out_masks,
                             gr_out_ids,
                             prev_masks_for_iou,
@@ -833,7 +886,22 @@ def _run_single_video(cfg, run_dir: Path, config_path: Path | None = None):
                             iou_threshold=grounding_cfg.get(
                                 "id_match_iou_threshold", 0.10
                             ),
+                            return_matched_ids=True,
                         )
+                        match_ratio = (
+                            len(matched_grounding_ids) / len(gr_out_ids)
+                            if gr_out_ids
+                            else 0.0
+                        )
+                        chunk_info["id_match_ratio"] = round(match_ratio, 3)
+                        min_ratio = grounding_cfg.get("id_match_min_ratio", 0.5)
+                        if match_ratio < min_ratio:
+                            discontinuity = "full" if match_ratio == 0.0 else "partial"
+                            chunk_info["id_discontinuity"] = discontinuity
+                            logger.warning(
+                                f"  [grounding] ID discontinuity ({discontinuity}): "
+                                f"match_ratio={match_ratio:.2f} < {min_ratio}"
+                            )
                     else:
                         id_map = {int(gid): int(gid) for gid in gr_out_ids}
                 else:
@@ -943,6 +1011,29 @@ def _run_single_video(cfg, run_dir: Path, config_path: Path | None = None):
                 f"Grounding outputs saved to {grounding_results_path} (chunk {chunk_idx})"
             )
 
+            # --- Grounding gap fill ---
+            # The tracker initialises at the best grounding frame, so frames
+            # [chunk_start, best_grounding_frame) would otherwise have no
+            # predictions at all. When enabled, reuse the grounding model's own
+            # outputs for that prefix, remapped to the tracker's IDs.
+            fill_gap = grounding_cfg.get("fill_grounding_gap", False)
+            if fill_gap and grounding_frame_offset > 0 and use_tracker:
+                for fidx in range(
+                    global_chunk_start, global_chunk_start + grounding_frame_offset
+                ):
+                    if fidx in grounding_outputs:
+                        grounding_prefix_outputs[fidx] = _remap_output_ids(
+                            grounding_outputs[fidx], id_map
+                        )
+                if grounding_prefix_outputs:
+                    logger.info(
+                        f"  [grounding] gap fill: {len(grounding_prefix_outputs)} "
+                        f"prefix frame(s) extracted from grounding outputs"
+                    )
+                    chunk_info["grounding_gap_frames_filled"] = len(
+                        grounding_prefix_outputs
+                    )
+
             del grounding_outputs
             free_gpu_memory()
 
@@ -1037,6 +1128,11 @@ def _run_single_video(cfg, run_dir: Path, config_path: Path | None = None):
                 chunk_frames, global_start_idx, cfg, device
             )
 
+        # Merge grounding prefix frames (gap fill) — prefix goes first so the
+        # tracker's own output wins on any overlapping frame.
+        if grounding_prefix_outputs:
+            chunk_outputs = {**grounding_prefix_outputs, **chunk_outputs}
+
         # Stop timer and calculate metrics
         elapsed_seconds = timer.end()
         avg_sec_per_frame = elapsed_seconds / max(1, num_frames)
@@ -1093,7 +1189,9 @@ def _run_single_video(cfg, run_dir: Path, config_path: Path | None = None):
     # Save chunk info JSON
     chunk_info_path = run_dir / "chunk_info.json"
     with open(chunk_info_path, "w") as f:
-        json.dump({"chunks": chunk_info_list}, f, indent=2)
+        json.dump(
+            {"frame_loader": frame_loader, "chunks": chunk_info_list}, f, indent=2
+        )
     logger.info(f"Chunk info saved to: {chunk_info_path}")
 
     # -----------------------------------------------------------------------
@@ -1250,10 +1348,11 @@ def run(cfg, config_path: str | Path):
     if not video_path and not video_dir:
         raise ValueError("Must specify either video_path or video_dir.")
 
-    job_type = "yolo_scan" if cfg.get("yolo_scan_only", False) else cfg.job_type
-
-    # Timestamped parent isolates each run from previous ones
-    batch_dir = create_run_directory(Path(cfg.output_dir), job_type)
+    # Same layout as pipeline/run_tracker.py: {DEFAULT_TRACKING_DIR}/{config_stem}/
+    batch_dir = Path(
+        cfg.get("output_dir", None) or Path(DEFAULT_TRACKING_DIR) / config_path.stem
+    )
+    batch_dir.mkdir(parents=True, exist_ok=True)
 
     if video_dir:
         _run_batch(cfg, batch_dir, Path(video_dir), config_path=config_path)

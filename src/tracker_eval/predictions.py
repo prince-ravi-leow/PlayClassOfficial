@@ -1,7 +1,8 @@
 """Convert raw tracker predictions to MOTChallenge 1.1 .txt files.
 
-Six-way ablation (ordered by Family → Recovery):
-  - Variant A         — YOLO + BoT-SORT only.
+Seven-way ablation (ordered by Family → Recovery):
+  - Variant A         — YOLO + BoT-SORT (no re-ID).
+  - Variant A1        — YOLO + BoT-SORT (re-ID enabled).
   - Variant B-strict  — Grounded-SAM-2 strict (no recovery scaffolding).
   - Variant B-parity  — Grounded-SAM-2 with parity recovery.
   - Variant C-strict  — SAM 3 frame-zero (no scan, no fallbacks).
@@ -182,7 +183,7 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 def add_subparser(subparsers) -> argparse.ArgumentParser:
     p = subparsers.add_parser(
         "convert-preds",
-        help="Convert tracker prediction parquets (6-way ablation) to MOTChallenge .txt files.",
+        help="Convert tracker prediction parquets (7-way ablation) to MOTChallenge .txt files.",
     )
     _add_args(p)
     p.set_defaults(func=run)
@@ -235,18 +236,29 @@ def run(args: argparse.Namespace) -> None:
         )
 
         summary.append(
-            (video_id, len(a_rows), n_b_strict, n_b_parity, n_c_strict, n_d, len(e_rows))
+            (
+                video_id,
+                len(a_rows),
+                len(a1_rows),
+                n_b_strict,
+                n_b_parity,
+                n_c_strict,
+                n_d,
+                len(e_rows),
+            )
         )
 
     print()
     header = (
-        f"{'video_id':<14} {'A':>10} {'B-strict':>10} {'B-parity':>10} "
+        f"{'video_id':<14} {'A':>10} {'A1-reid':>10} {'B-strict':>10} {'B-parity':>10} "
         f"{'C-strict':>10} {'D':>10} {'E':>10}"
     )
     print(header)
     print("-" * len(header))
-    for vid, na, nbs, nbp, ncs, nd, ne in summary:
-        print(f"{vid:<14} {na:>10} {nbs:>10} {nbp:>10} {ncs:>10} {nd:>10} {ne:>10}")
+    for vid, na, na1, nbs, nbp, ncs, nd, ne in summary:
+        print(
+            f"{vid:<14} {na:>10} {na1:>10} {nbs:>10} {nbp:>10} {ncs:>10} {nd:>10} {ne:>10}"
+        )
 
 
 def _main() -> None:
