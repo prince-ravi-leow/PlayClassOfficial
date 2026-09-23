@@ -1,4 +1,4 @@
-"""Smoke-test that every src module imports without error.
+"""Smoke-test that every src and pipeline module imports without error.
 
 Modules whose only failure is a missing optional dependency (torch,
 transformers, etc.) are skipped so the test suite stays useful in the
@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-SRC_ROOT = Path(__file__).resolve().parent.parent / "src"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PACKAGE_ROOTS = [PROJECT_ROOT / "src", PROJECT_ROOT / "pipeline"]
 
 OPTIONAL_PACKAGES = frozenset({
     "torch",
@@ -29,16 +30,20 @@ OPTIONAL_PACKAGES = frozenset({
     "omegaconf",
     "motmetrics",
     "kmedoids",
+    "yaml",
 })
 
 
 def _discover_modules():
-    """Yield dotted module paths for every .py file under src/."""
-    for py_file in sorted(SRC_ROOT.rglob("*.py")):
-        if py_file.name == "__init__.py":
+    """Yield dotted module paths for every .py file under src/ and pipeline/."""
+    for root in PACKAGE_ROOTS:
+        if not root.exists():
             continue
-        relative = py_file.relative_to(SRC_ROOT.parent)
-        yield str(relative.with_suffix("")).replace("/", ".")
+        for py_file in sorted(root.rglob("*.py")):
+            if py_file.name == "__init__.py":
+                continue
+            relative = py_file.relative_to(PROJECT_ROOT)
+            yield str(relative.with_suffix("")).replace("/", ".")
 
 
 def _is_optional_dep_missing(exc: ModuleNotFoundError) -> bool:

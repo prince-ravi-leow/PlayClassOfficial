@@ -16,4 +16,6 @@ DEFAULT_MIN_WINDOW_COVERAGE: Final = 0.5
 DEFAULT_N_JOBS: Final = 10
 DEFAULT_FPS: Final = 25.0
 DEFAULT_N_BIRDS: Final = 3
+K_RANGE: Final[range] = range(2, 13)
 LABEL_ORDER: Final = ["none", "worm", "locomotor", "social"]
+RANDOM_SEED: Final[int] = 42
