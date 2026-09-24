@@ -1,6 +1,6 @@
 # PlayClass
 
-[![Code DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22896785.svg)](https://zenodo.org/records/22896785)
+[![Code DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22896784.svg)](https://doi.org/10.5281/zenodo.22896784)
 [![Data DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22896874.svg)](https://doi.org/10.5281/zenodo.22896874)
 
 Repository for _Hybrid morphokinematic and learnable video representations for
