@@ -19,7 +19,6 @@ Usage::
 
 import json
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
-from glob import glob
 from pathlib import Path
 
 import numpy as np
@@ -48,12 +47,9 @@ def _load_cfg(run_dir: Path) -> dict:
 
 def _build_dm_and_model_cls(cfg: dict):
     """Reconstruct datamodule and model class from a run config."""
-    import torch
-
     from src.classification.datamodule import BehaviourDataModule
     from src.classification.model_selection import LOCO
     from src.classification.models import MODEL_REGISTRY
-    from src.classification.trainer import BehaviourClassifier
     from src.classification.utils import parse_input
 
     use_features, use_embeddings, embeddings_files = parse_input(cfg["input"])
@@ -113,7 +109,7 @@ def evaluate_run(run_dir: Path, device: str = "cuda:0", predictions: bool = True
     import torch
     import torch.nn.functional as F
 
-    from src.classification.stats import _save_per_fold_cms, _save_recall_txt
+    from src.classification.stats import _save_recall_txt
 
     run_dir = Path(run_dir)
     cfg = _load_cfg(run_dir)

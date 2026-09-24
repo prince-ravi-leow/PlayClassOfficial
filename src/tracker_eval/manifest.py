@@ -27,10 +27,10 @@ selected videos come from day 28. The joint cross-day ranking has
 historically produced 2 day-28 picks without forcing.
 
 Scan-dir discovery walks `--scan-runs-root` (default
-`data/results/tracking/sam3_best`) for `{YYYYMMDD_HHMMSS}_sam3_hf/{stem}/`
+`data/results/tracking/sam3_best`) for `day_{N}/{stem}/`
 directories containing `yolo_tracking.parquet`. When the same video stem
-appears in multiple timestamped runs, the lexicographically latest run is
-used (timestamp prefix orders correctly).
+appears under more than one subdirectory, the lexicographically latest
+subdirectory is used.
 
 Usage:
     pixi run -e tracker python -m pipeline.eval_tracker_all build-manifest
@@ -38,12 +38,11 @@ Usage:
 
 import argparse
 import re
-
 from pathlib import Path
 
 import pandas as pd
 
-from .paths import MANIFEST_CSV, RAW_VIDEO_ROOT, ROOT, SCAN_RUNS_ROOT
+from .paths import MANIFEST_CSV, RAW_VIDEO_ROOT, SCAN_RUNS_ROOT
 
 STEM_PATTERN = re.compile(r"^(?P<cage>C\d)(?P<group>G\d)_Test_\d+_day_(?P<day>\d+)_")
 
@@ -168,17 +167,15 @@ def run(args: argparse.Namespace) -> None:
             continue
         proxies = compute_difficulty_proxies(scan_dir)
         raw_video_path = args.raw_video_root / f"day_{parsed['day']}" / f"{stem}.mp4"
-        rows.append(
-            {
-                "video_id": f"{parsed['cage']}{parsed['group']}_day_{parsed['day']}",
-                "cage": parsed["cage"],
-                "group": parsed["group"],
-                "day": parsed["day"],
-                "path": str(raw_video_path.relative_to(ROOT)),
-                "scan_dir": str(scan_dir.relative_to(ROOT)),
-                **proxies,
-            }
-        )
+        rows.append({
+            "video_id": f"{parsed['cage']}{parsed['group']}_day_{parsed['day']}",
+            "cage": parsed["cage"],
+            "group": parsed["group"],
+            "day": parsed["day"],
+            "path": str(raw_video_path),
+            "scan_dir": str(scan_dir),
+            **proxies,
+        })
 
     df = pd.DataFrame(rows)
     counts_by_day = df["day"].value_counts().sort_index().to_dict()
@@ -198,9 +195,10 @@ def run(args: argparse.Namespace) -> None:
         df.groupby("cage")["difficulty"].rank(method="min", ascending=False).astype(int)
     )
     df["selected"] = df["rank_in_cage"] == 1
-    df["notes"] = df["selected"].map(
-        {True: "hardest group in cage across both days", False: ""}
-    )
+    df["notes"] = df["selected"].map({
+        True: "hardest group in cage across both days",
+        False: "",
+    })
 
     n_day_28 = int(((df["selected"]) & (df["day"] == 28)).sum())
     if n_day_28 < args.min_day_28:

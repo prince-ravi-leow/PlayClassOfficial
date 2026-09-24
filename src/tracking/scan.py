@@ -1,7 +1,7 @@
 """
 YOLO-based raw inference scan.
 
-Runs YOLO+ByteTrack on a video and returns a per-detection DataFrame
+Runs YOLO+BoT-SORT on a video and returns a per-detection DataFrame
 (``yolo_tracking.parquet``).  Per-frame metrics (occlusion, separation,
 clustering) are computed by ``src.tracking.metrics``.
 """
@@ -347,7 +347,8 @@ def run_yolo_scan(
         from ultralytics import YOLO
     except ImportError as exc:
         raise ImportError(
-            "ultralytics is required for YOLO scan. " "Install it with: pixi install"
+            "ultralytics is required for YOLO scan. "
+            "Install it with: pixi install -e tracker"
         ) from exc
 
     video_path = str(video_path)

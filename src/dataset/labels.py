@@ -48,6 +48,7 @@ MERGED_CLASSES = {
 
 
 def merge_behaviours(behav_str):
+    """Map an individual behaviour string to its merged class (locomotor/social/worm/none)."""
     if behav_str == "none":
         return "none"
     merged = set()

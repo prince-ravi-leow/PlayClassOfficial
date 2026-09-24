@@ -1,7 +1,10 @@
 """Select annotation frames for the tracker-eval ground-truth pass.
 
 For each selected video in ``data/results/eval_tracking/video_manifest.csv`` (selected=True),
-this script:
+samples frames from three sources (priority order):
+  chunk_guided        — ±5 frames around each adaptive chunk boundary
+  occlusion_bracketing — start/mid/end ±3 of the top-K longest occlusion periods
+  uniform             — one frame every UNIFORM_INTERVAL_SECONDS
 
 Output: ``data/results/eval_tracking/annotation_frames.csv`` (video_id, frame_idx, source).
 
@@ -20,11 +23,9 @@ from omegaconf import OmegaConf
 
 from .paths import ANNOTATION_FRAMES, DEFAULT_TRACKER_CONFIG, MANIFEST_CSV, ROOT
 
-# `src.metrics` / `src.tracker.*` pull in torch transitively and only the
-# `tracker` pixi env has it. The top-level CLI dispatcher imports this
-# module unconditionally to register the `select-frames` subparser, so the
-# heavy imports are deferred to call time — letting `tracker-evaluation`
-# env users invoke the post-CVAT stages without torch.
+# `src.tracking.*` pulls in torch transitively. The top-level CLI dispatcher
+# imports this module unconditionally to register the `select-frames`
+# subparser, so the heavy imports are deferred to call time.
 
 DEFAULT_UNIFORM_INTERVAL_SECONDS = 30.0
 BOUNDARY_OFFSETS = (-5, 0, 5)

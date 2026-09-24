@@ -2,8 +2,9 @@
 
 Data-side paths host small, version-controlled artefacts (manifests,
 keyframe schedules, results CSVs) under `data/results/eval_tracking/`.
-Heavy artefacts (CVAT Backup, tracker run parquets, source MP4 clips,
-MOT files) live under `data/results/eval_tracking/tracker_benchmark/`.
+Heavy artefacts (CVAT Backup, MOT files) live under
+`data/results/eval_tracking/tracker_benchmark/`; tracker run parquets are
+read from `data/results/tracking/{config_stem}/`.
 
 Each subcommand's CLI accepts `--manifest` / `--out` / `--predictions-root`
 overrides; these constants supply the defaults.

@@ -1,4 +1,5 @@
-# Re-exports for backwards compatibility
+"""Re-exports from dinov3.py for backwards compatibility."""
+
 from src.dataset.embeddings.dinov3 import (
     _split_mask_thirds,
     extract_bodypart_embeddings,

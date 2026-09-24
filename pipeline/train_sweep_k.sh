@@ -3,7 +3,7 @@
 # Embeddings-only, TemporalCNNv2, excluding social.
 #
 # Usage:
-#   pixi run sweep-k [-- --device cuda:0 --dry-run]
+#   pixi run train_sweep_k [--device cuda:0] [--dry-run]
 #   bash pipeline/train_sweep_k.sh [--device cuda:0] [--dry-run]
 
 set -euo pipefail

@@ -1,7 +1,6 @@
 """Tests for label parsing and bird_info correctness."""
 
 from glob import glob
-from pathlib import Path
 
 import pytest
 

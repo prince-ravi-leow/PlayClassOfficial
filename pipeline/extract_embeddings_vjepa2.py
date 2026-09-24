@@ -7,10 +7,9 @@ mean-pools the output tokens into one embedding per window.
 
 V-JEPA 2.1 setup (one-time)::
 
-    bash scripts/setup_vjepa2.1.sh              # default: vjepa2_1_vit_large_384
-    bash scripts/setup_vjepa2.1.sh <model>      # other variants
+    bash scripts/setup_vjepa2.1.sh
 
-This downloads the checkpoint and patches the torch.hub cache to rename
+This downloads the ViT-B and ViT-L checkpoints and patches the torch.hub cache to rename
 ``src/`` to ``vjepa2/`` (avoids collision with this project's ``src/``).
 """
 
@@ -30,7 +29,7 @@ from src._config import (
     DEFAULT_TRACKING_DIR,
     DEFAULT_VIDEO_DIR,
 )
-from src.dataset.crops import CROP_MODES, needs_mask
+from src.dataset.crops import CROP_MODES
 from src.dataset.embeddings.vjepa2 import (
     VJEPA21Wrapper,
     extract_video_embeddings,
@@ -111,6 +110,11 @@ def parse_args():
         type=str,
         default=None,
         help="Output filename (default: auto-generated from model name)",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reuse an existing output file and skip videos already extracted",
     )
     parser.add_argument(
         "--cid-checkpoint",
@@ -229,10 +233,16 @@ def main():
     output_path = (
         Path(output_name) if "/" in str(output_name) else args.dataset_dir / output_name
     )
-    save_incremental = args.raw
-
     all_embeddings = {}
+    if args.resume and not args.dry_run and output_path.exists():
+        all_embeddings = torch.load(output_path, map_location="cpu", weights_only=False)
+        logger.info(f"Resuming from {output_path}: {len(all_embeddings)} embeddings")
+    done_videos = {k[0] for k in all_embeddings}
+
     for video_id in video_ids:
+        if video_id in done_videos:
+            logger.info(f"--- Skipping {video_id} (already extracted) ---")
+            continue
         logger.info(f"--- Processing video: {video_id} ---")
         video_path = resolve_video_path(video_id, args.tracking_dir, args.video_dir)
         if video_path is None:

@@ -1,4 +1,11 @@
-"""Unified launcher for tracking pipelines (SAM 3, Grounded-SAM-2)."""
+"""Unified launcher for tracking pipelines (SAM 3, Grounded-SAM-2).
+
+Usage:
+    # Run with default config (config/sam3_best.yaml)
+    pixi run -e tracker track_best
+    # Run with custom config
+    pixi run -e tracker python -m pipeline.run_tracker --config config/sam3_baseline.yaml
+"""
 
 import os
 

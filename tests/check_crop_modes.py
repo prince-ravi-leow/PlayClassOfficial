@@ -24,8 +24,6 @@ from src.dataset.crops import (
     CROP_MODES,
     compute_union_origin,
     crop_frame,
-    needs_mask,
-    union_crop_size,
 )
 from src.dataset.embeddings import _split_mask_thirds
 from src.dataset.utils import resolve_video_path

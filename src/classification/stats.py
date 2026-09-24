@@ -1,3 +1,5 @@
+"""LOCO/LOVO cross-validation aggregation: scalar summary CSV, summed and per-fold confusion matrices, and per-class recall."""
+
 from pathlib import Path
 
 import numpy as np

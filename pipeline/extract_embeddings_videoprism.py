@@ -7,11 +7,11 @@ files for compatibility with the existing classification pipeline.
 Usage::
 
     pixi run -e videoprism extract_videoprism \
-        --video-dir data/video/batch data/video/batch2 --device 0
+        --video-dir data/videos/day_28 data/videos/day_29 --device 0
 
     # Save raw patch tokens for trainable pooler
     pixi run -e videoprism extract_videoprism \
-        --video-dir data/video/batch data/video/batch2 --device 0 --raw
+        --video-dir data/videos/day_28 data/videos/day_29 --device 0 --raw
 """
 
 import os
@@ -36,15 +36,7 @@ import tensorflow as tf
 import torch
 
 from loguru import logger
-from PIL import Image
-from tqdm import tqdm
 from videoprism import models as vp
-
-# Lazy torch import — only needed for saving .pt files
-import torch
-
-# Block TensorFlow from grabbing GPU
-import tensorflow as tf
 
 tf.config.set_visible_devices([], "GPU")
 tf.config.set_visible_devices([], "TPU")

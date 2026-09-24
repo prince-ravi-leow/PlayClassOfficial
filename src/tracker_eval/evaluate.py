@@ -1,9 +1,9 @@
-"""Sparse-keyframe MOT evaluation for the 6-way ablation.
+"""Sparse-keyframe MOT evaluation for the 7-way ablation.
 
 Reads sparse GT (from `cvat_to_mot.py`) and dense predictions (from
-`predictions.py`) for all 5 evaluation videos × 6 tracker variants
-(A_yolo_botsort, B_gs2_strict, B_gs2_fixed, C_sam3_frame_zero,
-D_sam3_fixed, E_sam3_adaptive) and emits:
+`predictions.py`) for all 5 evaluation videos × 7 tracker variants
+(A_yolo_botsort, A1_yolo_botsort_reid, B_gs2_strict, B_gs2_fixed,
+C_sam3_frame_zero, D_sam3_fixed, E_sam3_adaptive) and emits:
 
     data/results/eval_tracking/results/metrics_per_video.csv
     data/results/eval_tracking/results/metrics_per_cage.csv
@@ -23,6 +23,9 @@ Sparse-eval pattern: predictions stay dense; the accumulator and TrackEval
 data dict are built only over GT-present frames so we only score frames
 that have human-verified ground truth.
 
+Aggregation: per-cage and aggregate metrics are computed as the mean (± std)
+of per-video metrics.
+
 Usage:
     pixi run -e tracker python -m pipeline.eval_tracker_all evaluate
 """
@@ -32,9 +35,9 @@ from __future__ import annotations
 import argparse
 import sys
 
-from collections import defaultdict
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from .paths import (
@@ -46,23 +49,25 @@ from .paths import (
 )
 
 mm = None
-np = None
 HOTA = None
 
 
 def _ensure_eval_deps() -> None:
     """Import evaluation-only dependencies lazily.
 
-    The `prepare` command runs in the tracker pixi env, which does not include
-    motmetrics. Keeping these imports lazy lets the shared CLI dispatcher
-    register pre-CVAT commands without requiring post-CVAT dependencies.
+    Keeping these imports lazy lets the shared CLI dispatcher register the
+    pre-CVAT (`prepare`) commands without requiring motmetrics or the
+    TrackEval submodule.
     """
-    global HOTA, mm, np
-    if mm is not None and np is not None and HOTA is not None:
+    global HOTA, mm
+    if mm is not None and HOTA is not None:
         return
 
     import motmetrics as _mm
-    import numpy as _np
+
+    # motmetrics 1.4 calls np.asfarray, removed in numpy 2.0.
+    if not hasattr(np, "asfarray"):
+        np.asfarray = lambda a, dtype=float: np.asarray(a, dtype=dtype)
 
     # TrackEval is vendored as a git submodule at ext/TrackEval, not pip-installed.
     # Insert it on sys.path so `import trackeval` resolves to the submodule.
@@ -78,18 +83,18 @@ def _ensure_eval_deps() -> None:
         ("bool", bool),
         ("object", object),
     ):
-        if not hasattr(_np, _name):
-            setattr(_np, _name, _alias)
+        if not hasattr(np, _name):
+            setattr(np, _name, _alias)
 
     from trackeval.metrics.hota import HOTA as _HOTA
 
     mm = _mm
-    np = _np
     HOTA = _HOTA
 
 
 VARIANTS = (
     "A_yolo_botsort",
+    "A1_yolo_botsort_reid",
     "B_gs2_strict",
     "B_gs2_fixed",
     "C_sam3_frame_zero",
@@ -332,65 +337,82 @@ def run(args: argparse.Namespace) -> None:
     per_video = per_video[front + [c for c in per_video.columns if c not in front]]
     per_video.to_csv(args.out_dir / "metrics_per_video.csv", index=False)
 
-    # === per-cage === (one video per cage in this study, but generalised)
+    # Columns to aggregate (everything except identifiers)
+    id_cols = {"variant", "video_id", "cage"}
+    numeric_cols = [c for c in per_video.columns if c not in id_cols]
+
+    # === per-cage (mean ± std of per-video metrics within each cage) ===
     rows_per_cage: list[dict] = []
-    for variant in variants:
-        groups: dict[str, list[mm.MOTAccumulator]] = defaultdict(list)
-        names_in_cage: dict[str, list[str]] = defaultdict(list)
-        seqs_in_cage: dict[str, list[dict]] = defaultdict(list)
-        for acc, vid in zip(accs[variant], names[variant]):
-            c = cage_by_video[vid]
-            groups[c].append(acc)
-            names_in_cage[c].append(vid)
-            seqs_in_cage[c].append(hota_per_seq[variant][vid])
-        for cage in sorted(groups):
-            mm_df = mh.compute_many(
-                groups[cage],
-                names=names_in_cage[cage],
-                metrics=MOTMETRICS_FIELDS,
-                generate_overall=True,
-            )
-            overall = mm_df.loc["OVERALL"].to_dict()
-            overall["variant"] = variant
-            overall["cage"] = cage
-            cage_hota_res = hota_metric.combine_sequences(
-                {vid: r for vid, r in zip(names_in_cage[cage], seqs_in_cage[cage])}
-            )
-            overall.update(hota_summary(cage_hota_res))
-            rows_per_cage.append(overall)
+    for (variant, cage), group in per_video.groupby(["variant", "cage"]):
+        row: dict = {"variant": variant, "cage": cage, "n_videos": len(group)}
+        for col in numeric_cols:
+            row[col] = group[col].mean()
+            row[f"{col}_std"] = group[col].std()
+        rows_per_cage.append(row)
     per_cage = pd.DataFrame(rows_per_cage)
-    front = ["variant", "cage", "HOTA", "DetA", "AssA", "LocA"]
-    per_cage = per_cage[front + [c for c in per_cage.columns if c not in front]]
+    front_cage = [
+        "variant",
+        "cage",
+        "n_videos",
+        "HOTA",
+        "HOTA_std",
+        "DetA",
+        "DetA_std",
+        "AssA",
+        "AssA_std",
+        "LocA",
+        "LocA_std",
+    ]
+    per_cage = per_cage[
+        front_cage + [c for c in per_cage.columns if c not in front_cage]
+    ]
     per_cage.to_csv(args.out_dir / "metrics_per_cage.csv", index=False)
 
-    # === aggregate ===
+    # === aggregate (mean ± std of per-video metrics across all videos) ===
     rows_agg: list[dict] = []
-    for variant in variants:
-        mm_df = mh.compute_many(
-            accs[variant],
-            names=names[variant],
-            metrics=MOTMETRICS_FIELDS,
-            generate_overall=True,
-        )
-        overall = mm_df.loc["OVERALL"].to_dict()
-        overall["variant"] = variant
-        agg_hota_res = hota_metric.combine_sequences(
-            {vid: r for vid, r in hota_per_seq[variant].items()}
-        )
-        overall.update(hota_summary(agg_hota_res))
-        rows_agg.append(overall)
+    for variant, group in per_video.groupby("variant"):
+        row: dict = {"variant": variant, "n_videos": len(group)}
+        for col in numeric_cols:
+            row[col] = group[col].mean()
+            row[f"{col}_std"] = group[col].std()
+        rows_agg.append(row)
     aggregate = pd.DataFrame(rows_agg)
-    front = ["variant", "HOTA", "DetA", "AssA", "LocA"]
-    aggregate = aggregate[front + [c for c in aggregate.columns if c not in front]]
+    front_agg = [
+        "variant",
+        "n_videos",
+        "HOTA",
+        "HOTA_std",
+        "DetA",
+        "DetA_std",
+        "AssA",
+        "AssA_std",
+        "LocA",
+        "LocA_std",
+    ]
+    aggregate = aggregate[
+        front_agg + [c for c in aggregate.columns if c not in front_agg]
+    ]
     aggregate.to_csv(args.out_dir / "metrics_aggregate.csv", index=False)
 
     # Headline
     print()
     print("=" * 80)
-    print("AGGREGATE (5 videos, sparse GT)")
+    print(f"AGGREGATE ({len(videos)} videos, sparse GT, per-video mean ± std)")
     print("=" * 80)
-    headline = ["variant", "HOTA", "DetA", "AssA", "idf1", "mota", "num_switches"]
-    print(aggregate[headline].to_string(index=False))
+    headline = [
+        "variant",
+        "n_videos",
+        "HOTA",
+        "HOTA_std",
+        "idf1",
+        "idf1_std",
+        "mota",
+        "mota_std",
+        "num_switches",
+        "num_switches_std",
+    ]
+    available = [c for c in headline if c in aggregate.columns]
+    print(aggregate[available].to_string(index=False))
 
 
 def _main() -> None:

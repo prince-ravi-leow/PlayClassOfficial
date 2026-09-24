@@ -219,7 +219,8 @@ pixi run extract_dinov3 \
     --video-dir data/videos/day_28 data/videos/day_29
 ```
 
-Output: `embeddings.pt` saved to `data/dataset/`.
+Output: `embeddings_dinov3_vitl.pt` saved to `data/dataset/` (see
+[docs/6_embeddings.md](../../docs/6_embeddings.md) for other backbones).
 
 ## Module overview
 
