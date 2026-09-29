@@ -54,7 +54,8 @@ Research data (videos, labels, pipeline outputs) is hosted on
 repository root:
 
 ```bash
-tar -xzf playclass_zenodo.tar.gz
+wget https://zenodo.org/records/22896875/files/playclass_data.tar.gz
+tar -xzf playclass_data.tar.gz
 ```
 
 See [data/README.md](data/README.md) for the full directory structure.
