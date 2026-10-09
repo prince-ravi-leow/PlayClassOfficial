@@ -5,6 +5,7 @@ IO utilities for loading video metadata and frames.
 import re
 import sys
 
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -12,14 +13,30 @@ import cv2
 
 from loguru import logger
 
+# Human-readable, chronologically sortable, e.g. 2026-10-06_18-28-51.37
+RUN_ID_FORMAT = "%Y-%m-%d_%H-%M-%S.%f"
+
+
+def get_run_id() -> str:
+    """
+    Get unique run identifier (current timestamp, to hundredths of a second).
+    Run artefacts are named ``{run_id}_{artefact_basename}``.
+    """
+    # %f is microseconds (6 digits); truncate to hundredths (.ff)
+    return datetime.now().strftime(RUN_ID_FORMAT)[:-4]
+
 
 def setup_logger(
     log_dir: Path = Path("tmp/logs"),
     job_type: str = "sam3_hf",
     debug: bool = False,
+    run_id: str | None = None,
 ) -> Path:
     """
     Configure loguru logger with both console and file output.
+
+    The log file is ``{run_id}_{job_type}.log`` when *run_id* is given,
+    else ``{job_type}_{timestamp}.log``.
 
     Returns:
         Path to the log file.
@@ -27,8 +44,11 @@ def setup_logger(
     level = "DEBUG" if debug else "INFO"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = log_dir / f"{job_type}_{timestamp}.log"
+    if run_id is not None:
+        log_filename = log_dir / f"{run_id}_{job_type}.log"
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_filename = log_dir / f"{job_type}_{timestamp}.log"
 
     logger.remove()
 
@@ -101,17 +121,33 @@ def get_video_metadata(video_path: str | Path) -> tuple[float, int]:
     return fps, total_frames
 
 
-def load_video_frames_torchcodec(
-    video_path: str | Path,
-    start_frame: int,
-    end_frame: int,
-    device: str = "cpu",
-) -> list:
-    """Load frames [start_frame, end_frame) as a list of RGB numpy arrays.
+def get_downscaled_size(
+    height: int, width: int, max_short_side: int = 1080
+) -> tuple[int, int] | None:
+    """(H, W) with the short side shrunk to *max_short_side*, keeping aspect ratio.
 
-    Uses torchcodec for frame-accurate decoding (seek_mode="exact").
+    E.g. 4K (2160, 3840) -> (1080, 1920). Sides are rounded to even numbers,
+    which video encoders need. Returns ``None`` if no downscaling is needed.
+    """
+    scale = max_short_side / min(height, width)
+    if scale >= 1:
+        return None
+    return 2 * round(height * scale / 2), 2 * round(width * scale / 2)
+
+
+def load_transforms(size: tuple[int, int], antialias: bool = True) -> Callable:
+    """Frame transforms for (N, C, H, W) uint8 batches: resize to *size* (H, W)."""
+    from torchvision.transforms import v2
+
+    return v2.Compose([v2.Resize(size=size, antialias=antialias)])
+
+
+def get_torchcodec_decoder(video_path: str | Path, device: str = "cpu"):
+    """Return the torchcodec decoder for *video_path*, building it on first use.
+
     The decoder is cached per video path so the index scan (~18 s on first
-    access) only happens once across all chunks of the same video.
+    access) only happens once. Its ``.metadata`` has the exact frame count,
+    FPS and resolution, so no separate cv2 probe is needed.
 
     When *device* is ``"cuda"``, decoding is offloaded to NVDEC hardware.
     """
@@ -125,11 +161,36 @@ def load_video_frames_torchcodec(
             device,
         )
         _torchcodec_decoder_cache[key] = VideoDecoder(key, device=device)
+    return _torchcodec_decoder_cache[key]
 
-    decoder = _torchcodec_decoder_cache[key]
-    batch = decoder.get_frames_in_range(start=start_frame, stop=end_frame)
-    # batch.data shape: (N, C, H, W) uint8 tensor
-    return [frame.permute(1, 2, 0).cpu().numpy() for frame in batch.data]
+
+def load_video_frames_torchcodec(
+    video_path: str | Path,
+    start_frame: int,
+    end_frame: int,
+    device: str = "cpu",
+    transform: Callable | None = None,
+    batch_size: int = 32,
+) -> list:
+    """Load frames [start_frame, end_frame) as a list of RGB numpy arrays.
+
+    Uses torchcodec for frame-accurate decoding (seek_mode="exact"), via the
+    cached decoder from :func:`get_torchcodec_decoder`.
+
+    Frames are decoded *batch_size* at a time, and *transform* (e.g. from
+    :func:`load_transforms`) is applied to each (N, C, H, W) batch on
+    *device*, so full-size frames (e.g. 4K) never pile up in memory.
+    """
+    decoder = get_torchcodec_decoder(video_path, device=device)
+    frames = []
+    for start in range(start_frame, end_frame, batch_size):
+        stop = min(start + batch_size, end_frame)
+        # (N, C, H, W) uint8 tensor
+        batch = decoder.get_frames_in_range(start=start, stop=stop).data
+        if transform is not None:
+            batch = transform(batch)
+        frames.extend(frame.permute(1, 2, 0).cpu().numpy() for frame in batch)
+    return frames
 
 
 def load_video_frames_sequential(video_path, start_frame, end_frame):
@@ -185,12 +246,19 @@ def load_video_frames(
     end_frame: int,
     loader: str = "torchcodec",
     device: str = "cpu",
+    transform: Callable | None = None,
 ) -> list:
-    """Load frames [start_frame, end_frame) using the specified loader."""
+    """Load frames [start_frame, end_frame) using the specified loader.
+
+    *transform* (e.g. from :func:`load_transforms`) is only supported by the
+    ``"torchcodec"`` loader.
+    """
     if loader == "torchcodec":
         return load_video_frames_torchcodec(
-            video_path, start_frame, end_frame, device=device
+            video_path, start_frame, end_frame, device=device, transform=transform
         )
+    if transform is not None:
+        raise ValueError("transform is only supported by the torchcodec loader")
     if loader == "cv2_sequential":
         return load_video_frames_sequential(video_path, start_frame, end_frame)
     if loader == "cv2_seek":

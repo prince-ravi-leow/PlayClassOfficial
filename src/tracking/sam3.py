@@ -23,6 +23,9 @@ from omegaconf import OmegaConf
 from simpler_timer import SimplerTimer
 from tqdm import tqdm
 from transformers import (
+    Sam2VideoConfig,
+    Sam2VideoModel,
+    Sam2VideoProcessor,
     Sam3TrackerVideoConfig,
     Sam3TrackerVideoModel,
     Sam3TrackerVideoProcessor,
@@ -74,6 +77,25 @@ from .viz import annotate_video_with_sam3_outputs, generate_all_visualizations
 # Allow TF32 on Ampere+ GPUs — ~2x faster matmul with negligible precision loss
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
+
+# Point-prompted trackers for _process_tracker_chunk:
+# name -> (checkpoint, config class, model class, processor class).
+# In transformers the SAM 3 tracker subclasses the SAM 2 video model, so both
+# share the same API and run through the same code.
+TRACKER_MODELS = {
+    "sam3": (
+        "facebook/sam3",
+        Sam3TrackerVideoConfig,
+        Sam3TrackerVideoModel,
+        Sam3TrackerVideoProcessor,
+    ),
+    "sam2": (
+        "facebook/sam2.1-hiera-large",
+        Sam2VideoConfig,
+        Sam2VideoModel,
+        Sam2VideoProcessor,
+    ),
+}
 
 # ---------------------------------------------------------------------------
 # Per-chunk processing helpers
@@ -192,17 +214,29 @@ def _process_video_chunk(chunk_frames, start_idx, cfg, device):
     return outputs_per_frame
 
 
-def _process_tracker_chunk(chunk_frames, start_idx, all_prompt_points, cfg, device):
+def _process_tracker_chunk(
+    chunk_frames,
+    start_idx,
+    all_prompt_points,
+    cfg,
+    device,
+    tracker="sam3",
+    prompt_masks=None,
+):
     """
-    Process a chunk with Sam3TrackerVideoModel (point-prompted tracking).
+    Process a chunk with a point-prompted tracker (default Sam3TrackerVideoModel).
 
-    Loads model fresh, runs inference with point prompts for all objects,
-    cleans up. Returns dict mapping global frame indices to output dicts
-    normalized to match Sam3VideoModel output format.
+    ``tracker`` picks the model from ``TRACKER_MODELS``: "sam3" or "sam2"
+    (SAM 2.1 Large). ``prompt_masks`` ({object ID: (H, W) mask}, same objects
+    as ``all_prompt_points``) prompts each object with its mask instead of its
+    click points. Loads model fresh, runs inference with the prompts for all
+    objects, cleans up. Returns dict mapping global frame indices to output
+    dicts normalized to match Sam3VideoModel output format.
     """
     custom_resolution = cfg.get("custom_resolution", None)
 
-    config = Sam3TrackerVideoConfig.from_pretrained("facebook/sam3")
+    checkpoint, config_cls, model_cls, processor_cls = TRACKER_MODELS[tracker]
+    config = config_cls.from_pretrained(checkpoint)
 
     tracking_cfg = cfg.get("tracking", {})
     for key in [
@@ -227,21 +261,21 @@ def _process_tracker_chunk(chunk_frames, start_idx, all_prompt_points, cfg, devi
     if custom_resolution is not None:
         config.image_size = custom_resolution
 
-        model = Sam3TrackerVideoModel.from_pretrained(
-            "facebook/sam3", config=config
-        ).to(device, dtype=torch.bfloat16)
-        processor = Sam3TrackerVideoProcessor.from_pretrained(
-            "facebook/sam3",
+        model = model_cls.from_pretrained(checkpoint, config=config).to(
+            device, dtype=torch.bfloat16
+        )
+        processor = processor_cls.from_pretrained(
+            checkpoint,
             size={"height": custom_resolution, "width": custom_resolution},
         )
         logger.info(
-            f"Custom resolution {custom_resolution}x{custom_resolution} applied to Sam3TrackerVideo model and processor"
+            f"Custom resolution {custom_resolution}x{custom_resolution} applied to {model_cls.__name__} model and processor"
         )
     else:
-        model = Sam3TrackerVideoModel.from_pretrained(
-            "facebook/sam3", config=config
-        ).to(device, dtype=torch.bfloat16)
-        processor = Sam3TrackerVideoProcessor.from_pretrained("facebook/sam3")
+        model = model_cls.from_pretrained(checkpoint, config=config).to(
+            device, dtype=torch.bfloat16
+        )
+        processor = processor_cls.from_pretrained(checkpoint)
 
     # Initialize video inference session
     inference_session = processor.init_video_session(
@@ -252,21 +286,30 @@ def _process_tracker_chunk(chunk_frames, start_idx, all_prompt_points, cfg, devi
         dtype=torch.bfloat16,
     )
 
-    # Add point inputs for ALL objects on first frame
+    # Add point (or mask) inputs for ALL objects on first frame
     ann_frame_idx = 0
     obj_ids = list(all_prompt_points.keys())
 
-    input_points = [[all_prompt_points[oid] for oid in obj_ids]]
-    input_labels = [[[1] * len(all_prompt_points[oid]) for oid in obj_ids]]
+    if prompt_masks is not None:
+        logger.info(f"Adding mask prompts for {len(obj_ids)} objects on frame 0")
+        processor.add_inputs_to_inference_session(
+            inference_session=inference_session,
+            frame_idx=ann_frame_idx,
+            obj_ids=obj_ids,
+            input_masks=[prompt_masks[oid] for oid in obj_ids],
+        )
+    else:
+        input_points = [[all_prompt_points[oid] for oid in obj_ids]]
+        input_labels = [[[1] * len(all_prompt_points[oid]) for oid in obj_ids]]
 
-    logger.info(f"Adding point prompts for {len(obj_ids)} objects on frame 0")
-    processor.add_inputs_to_inference_session(
-        inference_session=inference_session,
-        frame_idx=ann_frame_idx,
-        obj_ids=obj_ids,
-        input_points=input_points,
-        input_labels=input_labels,
-    )
+        logger.info(f"Adding point prompts for {len(obj_ids)} objects on frame 0")
+        processor.add_inputs_to_inference_session(
+            inference_session=inference_session,
+            frame_idx=ann_frame_idx,
+            obj_ids=obj_ids,
+            input_points=input_points,
+            input_labels=input_labels,
+        )
 
     # Run inference on first frame to initialize tracking
     with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):

@@ -5,11 +5,11 @@ Functions for extracting, converting, and processing mask/bbox/point data
 from model outputs.
 """
 
+import cv2
 import numpy as np
 import pandas as pd
 import pycocotools.mask as mask_util
 import torch
-
 from loguru import logger
 
 
@@ -65,14 +65,12 @@ def _normalize_frame_dict(
                         if tracker_scores_dict and oid in tracker_scores_dict
                         else None
                     )
-                    dets.append(
-                        {
-                            "id": oid,
-                            "bbox": bbox,
-                            "score": score,
-                            "tracker_score": tracker_score,
-                        }
-                    )
+                    dets.append({
+                        "id": oid,
+                        "bbox": bbox,
+                        "score": score,
+                        "tracker_score": tracker_score,
+                    })
                 frames.append(dets)
                 continue
             if all(isinstance(k, (int, np.integer)) for k in v.keys()):
@@ -152,15 +150,18 @@ def extract_equidistant_points_from_mask(
     mask: np.ndarray, num_points: int = 3
 ) -> list[list[int]] | None:
     """
-    Extract equidistant points along the mask's major axis (x-axis).
+    Extract equidistant points along the mask's major axis (x-axis), inside the mask.
 
-    Samples points deterministically by sorting pixels by x-coordinate
-    and selecting evenly-spaced points using linspace. Provides better
-    spatial coverage than random sampling and naturally avoids border pixels.
+    Only the mask's core is sampled: pixels at least half as far from the mask
+    edge (or the frame edge) as its deepest pixel. Clicks on the edge are
+    ambiguous to SAM-style trackers, which may then segment the background.
+    Points are picked deterministically by sorting the core pixels by
+    x-coordinate and selecting evenly-spaced ones using linspace.
 
     Args:
         mask: Binary mask (H, W) with 1s indicating the object.
-        num_points: Number of equidistant points to extract.
+        num_points: Number of equidistant points to extract. With 1, the
+            single deepest pixel is returned.
 
     Returns:
         List of [x, y] points, or None if mask is empty.
@@ -169,12 +170,18 @@ def extract_equidistant_points_from_mask(
     if len(y_coords) == 0:
         return None
 
-    center_x = int(np.mean(x_coords))
-    center_y = int(np.mean(y_coords))
+    # Distance of each mask pixel to the nearest background pixel, computed on
+    # the mask's bounding box padded with background so the frame edge counts
+    y0, x0 = y_coords.min(), x_coords.min()
+    crop = mask[y0 : y_coords.max() + 1, x0 : x_coords.max() + 1] > 0
+    dist = cv2.distanceTransform(np.pad(crop, 1).astype(np.uint8), cv2.DIST_L2, 3)
+    dist = dist[1:-1, 1:-1]
 
     if num_points == 1:
-        return [[center_x, center_y]]
+        y, x = np.unravel_index(np.argmax(dist), dist.shape)
+        return [[int(x0 + x), int(y0 + y)]]
 
+    y_coords, x_coords = np.where(dist >= 0.5 * dist.max())
     sorted_indices = np.argsort(x_coords)
     n_pixels = len(sorted_indices)
 
@@ -183,15 +190,15 @@ def extract_equidistant_points_from_mask(
     points = []
     for idx in indices:
         sorted_idx = sorted_indices[idx]
-        x = int(x_coords[sorted_idx])
-        y = int(y_coords[sorted_idx])
+        x = int(x0 + x_coords[sorted_idx])
+        y = int(y0 + y_coords[sorted_idx])
         points.append([x, y])
 
     return points
 
 
 def extract_equidistant_points_from_masks(
-    masks: np.ndarray, num_points: int = 3
+    masks: np.ndarray, num_points: int = 5
 ) -> np.ndarray:
     """
     Batch wrapper for extract_equidistant_points_from_mask().
@@ -276,6 +283,67 @@ def reseed_tracker_memory(
 
     # Re-run forward for this frame — encodes fresh memory anchor
     model(inference_session, frame_idx=frame_idx, run_mem_encoder=True)
+
+
+class FrameTensors:
+    """In-memory RGB frames as SAM-style model inputs, prepared on demand.
+
+    Stands in for a SAM video loader's frame tensor (those only read JPEG
+    folders or MP4 files): ``frames[idx]`` is frame ``idx`` resized to a square
+    ``image_size`` and normalised with ``mean``/``std``, on ``device``. Uses
+    bicubic resizing with antialiasing, like the PIL resize of the SAM loaders.
+    """
+
+    def __init__(
+        self,
+        frames: list[np.ndarray],
+        image_size: int,
+        device,
+        mean: tuple[float, float, float] = (0.485, 0.456, 0.406),
+        std: tuple[float, float, float] = (0.229, 0.224, 0.225),
+    ):
+        self.frames = frames
+        self.image_size = image_size
+        self.device = device
+        self.mean = torch.tensor(mean, device=device).view(3, 1, 1)
+        self.std = torch.tensor(std, device=device).view(3, 1, 1)
+
+    def __len__(self) -> int:
+        return len(self.frames)
+
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        img = torch.from_numpy(self.frames[idx]).to(self.device)
+        img = img.permute(2, 0, 1)[None].float() / 255.0
+        img = torch.nn.functional.interpolate(
+            img,
+            size=(self.image_size, self.image_size),
+            mode="bicubic",
+            antialias=True,
+        )[0].clamp_(0, 1)
+        return (img - self.mean) / self.std
+
+
+def masks_to_frame_output(masks: np.ndarray, object_ids, scores) -> dict:
+    """Per-frame output dict, as the tracker chunk functions return it.
+
+    ``masks`` is (N, H, W) bool; boxes are their [x1, y1, x2, y2] extents
+    (zeros for empty masks) and ``scores`` the per-object presence scores.
+    """
+    boxes = np.zeros((len(masks), 4), dtype=np.float32)
+    for i, m in enumerate(masks):
+        rows, cols = np.flatnonzero(m.any(axis=1)), np.flatnonzero(m.any(axis=0))
+        if rows.size:
+            boxes[i] = cols[0], rows[0], cols[-1], rows[-1]
+    scores = np.asarray(scores, dtype=np.float32)
+    return {
+        "masks": masks,
+        "boxes": boxes,
+        "object_ids": np.array(object_ids),
+        "scores": scores,
+        "obj_id_to_tracker_score": {
+            int(oid): float(s) for oid, s in zip(object_ids, scores)
+        },
+    }
 
 
 def process_tracking_outputs(outputs_per_frame):

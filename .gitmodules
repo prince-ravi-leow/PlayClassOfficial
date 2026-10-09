@@ -4,3 +4,6 @@
 [submodule "ext/Grounded-SAM-2"]
 	path = ext/Grounded-SAM-2
 	url = https://github.com/IDEA-Research/Grounded-SAM-2
+[submodule "ext/sam3"]
+	path = ext/sam3
+	url = https://github.com/facebookresearch/sam3
