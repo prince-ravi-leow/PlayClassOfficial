@@ -145,22 +145,27 @@ def load_transforms(size: tuple[int, int], antialias: bool = True) -> Callable:
 def get_torchcodec_decoder(video_path: str | Path, device: str = "cpu"):
     """Return the torchcodec decoder for *video_path*, building it on first use.
 
-    The decoder is cached per video path so the index scan (~18 s on first
-    access) only happens once. Its ``.metadata`` has the exact frame count,
+    The decoder is cached per video path and device so the index scan (~18 s
+    on first access) only happens once. Its ``.metadata`` has the exact frame count,
     FPS and resolution, so no separate cv2 probe is needed.
 
-    When *device* is ``"cuda"``, decoding is offloaded to NVDEC hardware.
+    When *device* is ``"cuda"``, decoding is offloaded to NVDEC hardware; on
+    the CPU, FFmpeg picks the number of decoding threads (about 3.5x faster
+    than torchcodec's default of one for 4K HEVC).
     """
     from torchcodec.decoders import VideoDecoder
 
-    key = str(video_path)
+    key = (str(video_path), device)
     if key not in _torchcodec_decoder_cache:
         logger.info(
             "Building torchcodec index for '{}' (device={}).",
             Path(video_path).name,
             device,
         )
-        _torchcodec_decoder_cache[key] = VideoDecoder(key, device=device)
+        threads = {"num_ffmpeg_threads": 0} if device == "cpu" else {}
+        _torchcodec_decoder_cache[key] = VideoDecoder(
+            str(video_path), device=device, **threads
+        )
     return _torchcodec_decoder_cache[key]
 
 
@@ -235,7 +240,7 @@ def load_video_frames_range(
     return frames
 
 
-_torchcodec_decoder_cache: dict[str, object] = {}
+_torchcodec_decoder_cache: dict[tuple[str, str], object] = {}
 
 FRAME_LOADERS = {"torchcodec", "cv2_sequential", "cv2_seek"}
 

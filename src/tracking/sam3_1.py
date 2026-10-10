@@ -4,14 +4,19 @@ Used chunk by chunk by ``pipeline/run_tracker_simple.py``:
 
 - ``Sam31.ground``: the text-prompted SAM 3.1 video predictor (detector and
   tracker) on the grounding frames. Same signature and output dicts as
-  ``sam3._process_video_chunk``. Like SAM 3, it holds new objects back until
-  they are confirmed, so the first ~10 frames come out empty.
+  ``sam3._process_video_chunk``. Its score threshold for accepting a new
+  object is lowered from upstream's 0.65 to ``NEW_DET_THRESH`` (0.5) for
+  margin: on our bird footage the birds score about 0.68-0.74.
 - ``Sam31.track``: the SAM 3.1 multiplex tracker on its own, seeded on one
   frame with click points or masks and run forwards and backwards from it.
   Output dicts match ``sam3._process_tracker_chunk``. All objects share one
   multiplex state, so they are tracked jointly. Clicks are first turned into
   masks one object at a time, as the SAM 3.1 predictor does: clicking several
   objects into one multiplex state gives much worse masks.
+
+With ``compile=True`` both models are compiled with ``torch.compile``
+(upstream: about 2x faster; the tracker without CUDA graphs, see
+``_compile_tracker``). The first chunk is slow while it compiles.
 
 The code is imported from the ``ext/sam3`` submodule
 (``git submodule update --init ext/sam3``) and the weights come from the
@@ -44,8 +49,35 @@ SAM31_REPO = "facebook/sam3.1"
 SAM31_CHECKPOINT = "sam3.1_multiplex.pt"
 # Upper bound on objects the text-prompted predictor tracks (upstream: 16)
 MAX_OBJECTS = 64
+# Detection score a new object needs to be tracked (upstream: 0.65)
+NEW_DET_THRESH = 0.5
 # SAM 3.1 input normalisation
 IMAGE_MEAN = IMAGE_STD = (0.5, 0.5, 0.5)
+
+
+def _compile_tracker(tracker) -> None:
+    """Compile the tracker's heavy parts with ``torch.compile``.
+
+    The same parts upstream's ``compile=True`` compiles (memory encoder,
+    memory attention, mask decoder, image backbone), but without CUDA graphs:
+    those reuse their output buffers on every call, while the tracker keeps
+    mask decoder outputs from frame to frame, so upstream's version fails with
+    "accessing tensor output of CUDAGraphs that has been overwritten".
+    """
+    # Room for the shapes that vary with the number of memories (as upstream)
+    torch._dynamo.config.cache_size_limit = 64
+    torch._dynamo.config.accumulated_cache_size_limit = 2048
+    mode = "max-autotune-no-cudagraphs"
+    trunk = tracker.backbone.vision_backbone.trunk
+    trunk.forward = torch.compile(trunk.forward, mode=mode, fullgraph=True)
+    for module, dynamic in (
+        (tracker.maskmem_backbone, False),
+        (tracker.transformer.encoder, True),  # number of memories varies
+        (tracker.sam_mask_decoder, False),
+    ):
+        module.forward = torch.compile(
+            module.forward, mode=mode, fullgraph=True, dynamic=dynamic
+        )
 
 
 def _model_builder():
@@ -69,8 +101,9 @@ class Sam31:
     (upstream behaviour); ``close`` turns it off again.
     """
 
-    def __init__(self, device):
+    def __init__(self, device, compile: bool = False):
         self.device = torch.device(device)
+        self.compile = compile
         self._predictor = None
         self._tracker = None
 
@@ -82,7 +115,9 @@ class Sam31:
             predictor = _model_builder().build_sam3_multiplex_video_predictor(
                 use_fa3=False,  # FlashAttention 3 needs a Hopper GPU
                 max_num_objects=MAX_OBJECTS,
+                compile=self.compile,
             )
+            predictor.model.new_det_thresh = NEW_DET_THRESH
             # Upstream bug 1
             init_state = predictor.model.init_state
             predictor.model.init_state = lambda offload_state_to_cpu=False, **kwargs: (
@@ -97,7 +132,11 @@ class Sam31:
         if self._tracker is None:
             logger.info("Building SAM 3.1 multiplex tracker")
             tracker = _model_builder().build_sam3_multiplex_video_model(
-                load_from_HF=False, use_fa3=False, device=self.device
+                load_from_HF=False,
+                use_fa3=False,
+                # Real-valued RoPE, as upstream uses for compiling
+                use_rope_real=self.compile,
+                device=self.device,
             )
             # The checkpoint holds the whole predictor: keep the tracker and
             # the image backbone it shares with the detector
@@ -116,8 +155,16 @@ class Sam31:
                 for old, new in prefixes.items()
                 if key.startswith(old)
             }
-            tracker.load_state_dict(state_dict, strict=True)
+            missing, unexpected = tracker.load_state_dict(state_dict, strict=False)
+            # Only the real-valued RoPE tables (computed at build time) may be missing
+            if unexpected or any("freqs_cis" not in key for key in missing):
+                raise RuntimeError(
+                    f"SAM 3.1 tracker weights do not match: missing {missing}, "
+                    f"unexpected {unexpected}"
+                )
             tracker.eval()
+            if self.compile:
+                _compile_tracker(tracker)
             # Upstream bug 2
             forward_image = tracker.forward_image
             tracker.forward_image = lambda img, need_sam3_out=False, **kwargs: (

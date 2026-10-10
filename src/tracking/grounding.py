@@ -62,6 +62,7 @@ def find_best_grounding_frame(
       "best_scores"    — highest mean detection score
       "combined"       — low-occlusion frames first (max_iou < 0.10),
                          then by descending mean score within that tier
+      "most_objects"   — most objects first, then as "combined"
       "frame_zero"     — strict ablation null. Returns SAM 3's output at
                          exactly `chunk_start_frame_idx`, ignoring the
                          `min_objects` filter. Used by Variant C in the
@@ -126,6 +127,8 @@ def find_best_grounding_frame(
         candidates.sort(key=lambda x: x[4])
     elif method == "best_scores":
         candidates.sort(key=lambda x: -x[5])
+    elif method == "most_objects":
+        candidates.sort(key=lambda x: (-len(x[3]), x[4] >= 0.10, -x[5]))
     else:  # "combined"
         candidates.sort(key=lambda x: (x[4] >= 0.10, -x[5]))
 
