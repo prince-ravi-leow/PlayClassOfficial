@@ -4,15 +4,19 @@ Used chunk by chunk by ``pipeline/run_tracker_simple.py``:
 
 - ``Sam31.ground``: the text-prompted SAM 3.1 video predictor (detector and
   tracker) on the grounding frames. Same signature and output dicts as
-  ``sam3._process_video_chunk``. Its score threshold for accepting a new
-  object is lowered from upstream's 0.65 to ``NEW_DET_THRESH`` (0.5) for
-  margin: on our bird footage the birds score about 0.68-0.74.
+  ``sam3._process_video_chunk``. Its object cap (``max_objects``), detection
+  score threshold for new objects (``new_det_thresh``) and detector batch
+  (``grounding_batch_frames``) come from ``config/tracker_simple.yaml``.
 - ``Sam31.track``: the SAM 3.1 multiplex tracker on its own, seeded on one
   frame with click points or masks and run forwards and backwards from it.
   Output dicts match ``sam3._process_tracker_chunk``. All objects share one
   multiplex state, so they are tracked jointly. Clicks are first turned into
   masks one object at a time, as the SAM 3.1 predictor does: clicking several
   objects into one multiplex state gives much worse masks.
+
+``link_chunk_ids`` then gives objects the same IDs across chunks: each
+chunk's objects on its first frame are matched against the previous chunk's
+last frames by mask IoU (see its docstring).
 
 With ``compile=True`` both models are compiled with ``torch.compile``
 (upstream: about 2x faster; the tracker without CUDA graphs, see
@@ -33,25 +37,27 @@ gated ``facebook/sam3.1`` Hugging Face repo. Works around three upstream bugs
 
 import sys
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+import pandas as pd
+import pycocotools.mask as mask_util
 import torch
 
 from huggingface_hub import hf_hub_download
 from loguru import logger
 from PIL import Image
+from scipy.optimize import linear_sum_assignment
+from tqdm import tqdm
 
 from .utils import FrameTensors, masks_to_frame_output
 
 SAM3_DIR = Path(__file__).resolve().parents[2] / "ext" / "sam3"
 SAM31_REPO = "facebook/sam3.1"
 SAM31_CHECKPOINT = "sam3.1_multiplex.pt"
-# Upper bound on objects the text-prompted predictor tracks (upstream: 16)
-MAX_OBJECTS = 64
-# Detection score a new object needs to be tracked (upstream: 0.65)
-NEW_DET_THRESH = 0.5
-# SAM 3.1 input normalisation
+# SAM 3.1 input normalisation (fixed by its training)
 IMAGE_MEAN = IMAGE_STD = (0.5, 0.5, 0.5)
 
 
@@ -97,12 +103,34 @@ def _model_builder():
 class Sam31:
     """SAM 3.1 grounding and tracking; each model is built on first use.
 
+    Grounding settings: ``max_objects`` the predictor tracks (upstream: 16),
+    the detection score a new object needs (``new_det_thresh``, upstream:
+    0.65) and the frames the detector processes at once
+    (``grounding_batch_frames``, upstream: 16; fewer need less GPU memory).
+    ``progress(desc, total)`` makes a tqdm-like bar (``update``, ``close``)
+    for the frames of each grounding and tracking pass; by default none shows.
+
     Building the predictor turns on bf16 autocast for the rest of the process
     (upstream behaviour); ``close`` turns it off again.
     """
 
-    def __init__(self, device, compile: bool = False):
+    def __init__(
+        self,
+        device,
+        *,
+        max_objects: int,
+        new_det_thresh: float,
+        grounding_batch_frames: int,
+        compile: bool = False,
+        progress: Callable[[str, int], Any] | None = None,
+    ):
         self.device = torch.device(device)
+        self.progress = progress or (
+            lambda desc, total: tqdm(total=total, desc=desc, disable=True)
+        )
+        self.max_objects = max_objects
+        self.new_det_thresh = new_det_thresh
+        self.grounding_batch_frames = grounding_batch_frames
         self.compile = compile
         self._predictor = None
         self._tracker = None
@@ -114,10 +142,11 @@ class Sam31:
             logger.info("Building SAM 3.1 video predictor")
             predictor = _model_builder().build_sam3_multiplex_video_predictor(
                 use_fa3=False,  # FlashAttention 3 needs a Hopper GPU
-                max_num_objects=MAX_OBJECTS,
+                max_num_objects=self.max_objects,
                 compile=self.compile,
             )
-            predictor.model.new_det_thresh = NEW_DET_THRESH
+            predictor.model.new_det_thresh = self.new_det_thresh
+            predictor.model.batched_grounding_batch_size = self.grounding_batch_frames
             # Upstream bug 1
             init_state = predictor.model.init_state
             predictor.model.init_state = lambda offload_state_to_cpu=False, **kwargs: (
@@ -196,6 +225,7 @@ class Sam31:
             }
         )
         outputs_per_frame = {}
+        bar = self.progress("grounding", len(chunk_frames))
         for response in predictor.handle_stream_request(
             {
                 "type": "propagate_in_video",
@@ -209,6 +239,8 @@ class Sam31:
                     out["out_binary_masks"], out["out_obj_ids"], out["out_probs"]
                 )
             )
+            bar.update()
+        bar.close()
         predictor.handle_request({"type": "close_session", "session_id": session_id})
         return outputs_per_frame
 
@@ -247,7 +279,8 @@ class Sam31:
         Objects are given on ``chunk_frames[seed_offset]`` as click points
         (``all_prompt_points``: object ID -> [[x, y], ...]) or, if given, as
         masks (``prompt_masks``: object ID -> (H, W) mask, same objects).
-        Returns {global frame index: output dict} for every frame of the chunk.
+        Returns {global frame index: output dict} for every frame of the chunk,
+        with RLE masks (see ``masks_to_frame_output``).
         """
         tracker = self.tracker
         height, width = chunk_frames[0].shape[:2]
@@ -275,6 +308,7 @@ class Sam31:
             tracker.add_new_masks(state, seed_offset, obj_ids, torch.stack(masks))
             tracker.propagate_in_video_preflight(state, run_mem_encoder=True)
 
+            bar = self.progress("tracking", len(chunk_frames))
             for reverse in (False, True):
                 if reverse and seed_offset == 0:
                     break
@@ -294,7 +328,10 @@ class Sam31:
                         (video_res_masks > 0).squeeze(1).cpu().numpy(),
                         ids,
                         torch.sigmoid(score_logits.float()).flatten().cpu().numpy(),
+                        rle=True,
                     )
+                    bar.update()
+            bar.close()
         del state
         return outputs_per_frame
 
@@ -304,3 +341,83 @@ class Sam31:
             self._predictor.bf16_context.__exit__(None, None, None)
             self._predictor.shutdown()
         self._predictor = self._tracker = None
+
+
+def _frame_rles(rows: pd.DataFrame, frame_idx: int) -> tuple[list, list[int]]:
+    """One frame's masks as COCO RLE dicts, and their object IDs."""
+    frame = rows.xs(frame_idx, level="frame_idx")
+    rles = [
+        {"size": list(size), "counts": counts.encode()}
+        for counts, size in zip(frame["counts"], frame["size"])
+    ]
+    return rles, frame.index.tolist()
+
+
+def link_chunk_ids(
+    rows_by_chunk: dict[int, pd.DataFrame], *, lookback_frames: int, min_iou: float
+) -> dict[int, pd.DataFrame]:
+    """Give each object the same ID in every chunk (parquet rows, by chunk index).
+
+    Chunk by chunk, the objects on a chunk's first frame are paired one to one
+    with the objects of each of the previous chunk's last ``lookback_frames``
+    frames, maximising mask IoU (scipy's ``linear_sum_assignment``). The frame
+    with the highest mean IoU per object (0 for an unpaired object) wins, and
+    its IDs carry over. An object whose IoU with its partner is below
+    ``min_iou`` (or that has none) gets an ID not used in any chunk so far;
+    this is logged. The first chunk keeps its IDs; a chunk after an empty one
+    gets all new IDs.
+    """
+    linked = {}
+    next_id = 0  # lowest ID not used in any chunk so far
+    for chunk_idx in sorted(rows_by_chunk):
+        rows = rows_by_chunk[chunk_idx]
+        tag = f"  [chunk {chunk_idx}]"
+        object_ids = rows.index.get_level_values("object_id").unique().tolist()
+        if not linked:
+            id_map = {oid: oid for oid in object_ids}
+        else:
+            # Why each object without a carried-over ID gets a new one
+            reasons = dict.fromkeys(object_ids, "no match")
+            id_map = {}
+            prev = linked.get(chunk_idx - 1)
+            if prev is None:
+                reasons = dict.fromkeys(object_ids, "previous chunk is empty")
+            else:
+                first = int(rows.index.get_level_values("frame_idx").min())
+                new_rles, new_ids = _frame_rles(rows, first)
+                # The previous chunk's last frame whose objects overlap best
+                prev_frames = sorted(prev.index.get_level_values("frame_idx").unique())
+                best = None
+                for frame_idx in prev_frames[-lookback_frames:]:
+                    old_rles, old_ids = _frame_rles(prev, frame_idx)
+                    if not new_rles or not old_rles:
+                        continue
+                    iou = mask_util.iou(new_rles, old_rles, [0] * len(old_rles))
+                    pairs = list(zip(*linear_sum_assignment(iou, maximize=True)))
+                    mean_iou = sum(iou[i, j] for i, j in pairs) / len(new_ids)
+                    if best is None or mean_iou > best[0]:
+                        best = (mean_iou, frame_idx, old_ids, iou, pairs)
+                if best is not None:
+                    mean_iou, frame_idx, old_ids, iou, pairs = best
+                    logger.info(
+                        f"{tag} IDs from frame {frame_idx} of chunk {chunk_idx - 1} "
+                        f"(mean IoU per object {mean_iou:.2f})"
+                    )
+                    for i, j in pairs:
+                        if iou[i, j] >= min_iou:
+                            id_map[new_ids[i]] = old_ids[j]
+                        else:
+                            reasons[new_ids[i]] = (
+                                f"IoU {iou[i, j]:.2f} < {min_iou} with "
+                                f"object {old_ids[j]} in frame {frame_idx}"
+                            )
+            for oid in object_ids:
+                if oid not in id_map:
+                    id_map[oid] = next_id
+                    logger.warning(
+                        f"{tag} object {oid} -> new ID {next_id} ({reasons[oid]})"
+                    )
+                    next_id += 1
+        linked[chunk_idx] = rows.rename(index=id_map, level="object_id").sort_index()
+        next_id = max(next_id, max(id_map.values(), default=-1) + 1)
+    return linked

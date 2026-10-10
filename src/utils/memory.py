@@ -33,7 +33,8 @@ def free_gpu_memory(log_stats: bool = False):
         after_alloc = torch.cuda.memory_allocated() / 1024**2
         after_res = torch.cuda.memory_reserved() / 1024**2
         logger.info(
-            f"GPU memory after cleanup: {after_alloc:.1f} MB allocated, {after_res:.1f} MB reserved"
+            f"GPU memory after cleanup: {after_alloc:.1f} MB allocated, {after_res:.1f} MB reserved "
+            f"(freed {before_res - after_res:.1f} MB reserved)"
         )
 
 

@@ -12,6 +12,7 @@ from pathlib import Path
 import cv2
 
 from loguru import logger
+from tqdm import tqdm
 
 # Human-readable, chronologically sortable, e.g. 2026-10-06_18-28-51.37
 RUN_ID_FORMAT = "%Y-%m-%d_%H-%M-%S.%f"
@@ -31,12 +32,15 @@ def setup_logger(
     job_type: str = "sam3_hf",
     debug: bool = False,
     run_id: str | None = None,
+    console_sink: Callable[[str], None] | None = None,
 ) -> Path:
     """
     Configure loguru logger with both console and file output.
 
     The log file is ``{run_id}_{job_type}.log`` when *run_id* is given,
-    else ``{job_type}_{timestamp}.log``.
+    else ``{job_type}_{timestamp}.log``. Console lines are printed with
+    ``tqdm.write``, so they do not break progress bars; *console_sink*
+    replaces that (e.g. to hand the lines to another process).
 
     Returns:
         Path to the log file.
@@ -54,10 +58,11 @@ def setup_logger(
 
     # Console handler (colored)
     logger.add(
-        sys.stderr,
+        console_sink or (lambda msg: tqdm.write(msg, file=sys.stderr, end="")),
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> "
         "[<level>{level}</level>] {message}",
         level=level,
+        colorize=sys.stderr.isatty(),
     )
 
     # File handler

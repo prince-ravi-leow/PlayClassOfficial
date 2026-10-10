@@ -323,11 +323,32 @@ class FrameTensors:
         return (img - self.mean) / self.std
 
 
-def masks_to_frame_output(masks: np.ndarray, object_ids, scores) -> dict:
+def encode_masks_rle(masks: np.ndarray) -> list[dict]:
+    """(N, H, W) masks as COCO RLE dicts (``counts`` bytes, ``size`` [H, W])."""
+    return [mask_util.encode(np.asfortranarray(m, dtype=np.uint8)) for m in masks]
+
+
+def decode_frame_masks(frame_output: dict) -> dict:
+    """``frame_output`` with RLE masks (see ``encode_masks_rle``) as (N, H, W) bool.
+
+    Outputs whose masks are already arrays are returned unchanged.
+    """
+    masks = frame_output["masks"]
+    if isinstance(masks, list) and masks and isinstance(masks[0], dict):
+        decoded = mask_util.decode(masks).transpose(2, 0, 1).astype(bool)
+        return {**frame_output, "masks": decoded}
+    return frame_output
+
+
+def masks_to_frame_output(
+    masks: np.ndarray, object_ids, scores, rle: bool = False
+) -> dict:
     """Per-frame output dict, as the tracker chunk functions return it.
 
     ``masks`` is (N, H, W) bool; boxes are their [x1, y1, x2, y2] extents
     (zeros for empty masks) and ``scores`` the per-object presence scores.
+    With ``rle``, masks are stored as COCO RLE dicts: a few KB per mask
+    instead of H x W bytes, so a whole chunk of tracked frames fits in RAM.
     """
     boxes = np.zeros((len(masks), 4), dtype=np.float32)
     for i, m in enumerate(masks):
@@ -336,7 +357,7 @@ def masks_to_frame_output(masks: np.ndarray, object_ids, scores) -> dict:
             boxes[i] = cols[0], rows[0], cols[-1], rows[-1]
     scores = np.asarray(scores, dtype=np.float32)
     return {
-        "masks": masks,
+        "masks": encode_masks_rle(masks) if rle else masks,
         "boxes": boxes,
         "object_ids": np.array(object_ids),
         "scores": scores,

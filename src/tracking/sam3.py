@@ -68,6 +68,7 @@ from .scan import run_yolo_scan, yolo_scan_to_df
 from .utils import (
     extract_equidistant_points_from_masks,
     find_frame_with_enough_objects,
+    encode_masks_rle,
     process_tracking_outputs,
     reseed_tracker_memory,
     to_numpy,
@@ -222,6 +223,7 @@ def _process_tracker_chunk(
     device,
     tracker="sam3",
     prompt_masks=None,
+    rle_masks=False,
 ):
     """
     Process a chunk with a point-prompted tracker (default Sam3TrackerVideoModel).
@@ -231,7 +233,8 @@ def _process_tracker_chunk(
     as ``all_prompt_points``) prompts each object with its mask instead of its
     click points. Loads model fresh, runs inference with the prompts for all
     objects, cleans up. Returns dict mapping global frame indices to output
-    dicts normalized to match Sam3VideoModel output format.
+    dicts normalized to match Sam3VideoModel output format. ``rle_masks``
+    stores each frame's masks as COCO RLE dicts, which keeps RAM low.
     """
     custom_resolution = cfg.get("custom_resolution", None)
 
@@ -425,7 +428,7 @@ def _process_tracker_chunk(
 
             global_frame_idx = start_idx + local_frame_idx
             outputs_per_frame[global_frame_idx] = {
-                "masks": masks_np,
+                "masks": encode_masks_rle(masks_np) if rle_masks else masks_np,
                 "boxes": np.array(boxes),
                 "object_ids": np.array(active_ids),
                 "scores": active_scores,

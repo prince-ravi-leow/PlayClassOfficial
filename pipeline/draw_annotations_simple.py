@@ -178,8 +178,9 @@ def draw_annotations(
     t_start = time.time()
     tracks = pd.read_parquet(parquet_path, columns=["bbox", "counts", "size", "scores"])
     tracked_frames = np.sort(tracks.index.get_level_values("frame_idx").unique())
-    # Gap between tracked frames (the run's --frame-stride)
-    stride = int(np.diff(tracked_frames).min()) if len(tracked_frames) > 1 else 1
+    # Most common gap between tracked frames: the run's --frame-stride
+    gaps = np.diff(tracked_frames)
+    stride = int(np.bincount(gaps).argmax()) if len(gaps) else 1
     size = tuple(int(x) for x in tracks["size"].iloc[0])  # (H, W)
     meta = get_torchcodec_decoder(video_path, device="cpu").metadata
     end = min(meta.num_frames, int(tracked_frames[-1]) + stride)

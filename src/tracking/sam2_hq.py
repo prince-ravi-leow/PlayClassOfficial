@@ -69,7 +69,7 @@ def track_chunk_sam2_hq(
     ``all_prompt_points`` maps object ID -> [[x, y], ...] positive clicks.
     ``prompt_masks`` (object ID -> (H, W) mask, same objects) prompts each
     object with its mask instead. Returns {global frame index: output dict},
-    like ``_process_tracker_chunk``.
+    like ``_process_tracker_chunk``, with RLE masks.
     """
     device = torch.device(device)
     predictor = _build_predictor(device)
@@ -115,7 +115,7 @@ def track_chunk_sam2_hq(
             masks = (mask_logits > 0.0).squeeze(1).cpu().numpy()  # (N, H, W)
             scores = _object_scores(inference_state, local_idx)
             outputs_per_frame[start_idx + local_idx] = masks_to_frame_output(
-                masks, obj_ids, scores
+                masks, obj_ids, scores, rle=True
             )
 
     predictor.reset_state(inference_state)
