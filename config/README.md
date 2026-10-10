@@ -20,4 +20,5 @@ the output directory under `data/results/tracking/`.
 | File                   | Description                                                     |
 | ---------------------- | --------------------------------------------------------------- |
 | `benchmark_videos.txt` | Stems of the 5 benchmark videos used in `--eval` mode.          |
+| `tracker_simple.yaml`  | Default settings for `pipeline/run_tracker_simple.py`.          |
 | `ultralytics/`         | Ultralytics tracker configs (BoT-SORT parameters, ReID toggle). |

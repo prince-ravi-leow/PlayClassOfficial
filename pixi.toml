@@ -122,6 +122,7 @@ einops = ">=0.8"
 [feature.tracker.tasks]
 setup_hqsam2 = "bash scripts/setup_hqsam2.sh"
 compute_chunk_boundaries = "python -m pipeline.compute_chunk_boundaries"
+track_simple = "python -m pipeline.run_tracker_simple"
 test_tracker = "CUDA_VISIBLE_DEVICES=0 python -m pytest tests/test_tracker.py -v"
 test_tracking_postprocessing = "python -m pytest tests/test_tracking_postprocessing.py -v"
 # Import smoke test with all heavy deps installed. CI skips modules that need

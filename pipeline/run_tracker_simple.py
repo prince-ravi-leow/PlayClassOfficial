@@ -1,19 +1,22 @@
 """Barebones SAM 3 tracker: fixed-length chunks, each seeded by text grounding.
 
-For every fixed chunk (default 60 s):
+Settings come from ``config/tracker_simple.yaml`` (``--config`` for another
+file); any flag below overrides its value.
+
+For every fixed chunk (``--chunk-seconds``):
 
 1. Run a text-prompted model (``--grounder``) on the first
    ``--grounding-frames`` frames and pick the one with the most objects
    (ties: least overlap, then highest score; ``find_best_grounding_frame``):
 
-   - ``sam3`` (default): ``Sam3VideoModel`` via transformers
+   - ``sam3``: ``Sam3VideoModel`` via transformers
    - ``sam3.1``: the SAM 3.1 video predictor (``ext/sam3`` submodule);
      ``--compile`` compiles the SAM 3.1 models (slow first run)
 2. Hand each object to a promptable tracker (``--tracker``), as its mask
-   (default) or as 3 click points sampled inside it (``--prompt points``),
-   and track from that frame to the end of the chunk:
+   (``--prompt masks``) or as 3 click points sampled inside it
+   (``--prompt points``), and track from that frame to the end of the chunk:
 
-   - ``sam3`` (default): ``Sam3TrackerVideoModel``
+   - ``sam3``: ``Sam3TrackerVideoModel``
    - ``sam2``: SAM 2.1 Large via transformers (``Sam2VideoModel``)
    - ``sam2-hq``: HQ-SAM 2 Large (SysCV/sam-hq); fetch its code first with
      ``pixi run -e tracker setup_hqsam2``
@@ -32,7 +35,7 @@ With ``--frame-stride N`` only every N-th frame is tracked (e.g. 2: 25 -> 12.5
 fps), so the parquet only has those frames; frame numbers stay those of the
 original video.
 
-Frames whose short side is over ``--max-short-side`` pixels (default 1080) are
+Frames whose short side is over ``--max-short-side`` pixels (e.g. 1080) are
 downscaled while decoding (e.g. 4K -> 1080p), so all outputs, including mask
 and box coordinates, are at the downscaled resolution.
 
@@ -46,8 +49,7 @@ Outputs, in ``{out_dir}/{video_stem}/``, prefixed with a unique run id
 
 Usage::
 
-    pixi run -e tracker python -m pipeline.run_tracker_simple \\
-        --video-path path/to/video.mp4 --text-prompt bird --tracker sam2
+    pixi run -e tracker track_simple --video-path path/to/video.mp4 --tracker sam2
 
 SAM 3.1 needs the submodule (``git submodule update --init ext/sam3``) and
 access to the gated ``facebook/sam3.1`` Hugging Face repo.
@@ -61,7 +63,12 @@ os.environ.setdefault(
     "PYTORCH_ALLOC_CONF", "expandable_segments:True,garbage_collection_threshold:0.6"
 )
 
-from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
+from argparse import (
+    ArgumentDefaultsHelpFormatter,
+    ArgumentParser,
+    BooleanOptionalAction,
+    Namespace,
+)
 from pathlib import Path
 
 import numpy as np
@@ -72,7 +79,7 @@ from loguru import logger
 from omegaconf import OmegaConf
 
 from pipeline.draw_annotations_simple import draw_annotations
-from src._config import DEFAULT_TRACKING_DIR
+from src._config import DEFAULT_CONFIG_DIR
 from src.tracking.chunking import chunk_video_frames_adaptive
 from src.tracking.grounding import find_best_grounding_frame, run_grounding
 from src.tracking.sam2_hq import track_chunk_sam2_hq
@@ -94,6 +101,8 @@ from src.utils.io import (
 )
 from src.utils.memory import free_gpu_memory
 
+# Default settings; any of them can be overridden with a command-line flag
+DEFAULT_CONFIG = Path(DEFAULT_CONFIG_DIR) / "tracker_simple.yaml"
 # SAM 3 tracker settings, copied from config/sam3_best.yaml. Disabled for now:
 # the models run with their facebook/sam3 defaults.
 # TRACKING_PARAMS = {
@@ -121,6 +130,8 @@ TRACKER_MODEL_TYPES = {
     "sam2-hq": "SAM2HQVideoPredictor",
     "sam3.1": "Sam3VideoTrackingMultiplex",
 }
+# --prompt choices: hand each object to the tracker as its mask or click points
+PROMPTS = ("masks", "points")
 
 
 def _seed_prompts(
@@ -361,90 +372,113 @@ def track_video(
         )
 
 
-def main():
+def parse_args() -> Namespace:
+    """Settings from the ``--config`` YAML; flags on the command line override it."""
+    config_parser = ArgumentParser(add_help=False)
+    config_parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG,
+        help="YAML file with the settings; the flags below override its values.",
+    )
+    config_path = config_parser.parse_known_args()[0].config
+    cfg = OmegaConf.to_container(OmegaConf.load(config_path))
+
+    # No defaults here: they all come from the config (shown by --help)
     parser = ArgumentParser(
         description="Barebones SAM 3 tracker: fixed chunks seeded by text grounding.",
         formatter_class=ArgumentDefaultsHelpFormatter,
+        parents=[config_parser],
     )
-    parser.add_argument(
-        "--video-path", type=Path, required=True, help="Input video file."
-    )
+    parser.add_argument("--video-path", type=Path, help="Input video file.")
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path(DEFAULT_TRACKING_DIR) / "simple",
         help="Output root; results go in {out_dir}/{video_stem}/.",
     )
+    parser.add_argument("--text-prompt", help="What SAM 3 should segment.")
     parser.add_argument(
-        "--text-prompt", default="bird", help="What SAM 3 should segment."
-    )
-    parser.add_argument(
-        "--chunk-seconds", type=float, default=60.0, help="Chunk length in seconds."
+        "--chunk-seconds", type=float, help="Chunk length in seconds."
     )
     parser.add_argument(
         "--grounding-frames",
         type=int,
-        default=125,
         help="Video frames at the start of each chunk scanned for the seed frame.",
     )
     parser.add_argument(
         "--min-objects",
         type=int,
-        default=10,
         help="Objects a grounding frame needs before it can seed the tracker.",
     )
     parser.add_argument(
         "--max-short-side",
         type=int,
-        default=1080,
         help="Frames whose short side is larger are downscaled to it (target: 1080p).",
     )
     parser.add_argument(
         "--grounder",
         choices=list(GROUNDER_MODEL_TYPES),
-        default="sam3",
         help="Text-prompted model that finds the objects in each chunk.",
     )
     parser.add_argument(
         "--tracker",
         choices=list(TRACKER_MODEL_TYPES),
-        default="sam3",
         help="Promptable tracker that takes over from the grounding model.",
     )
     parser.add_argument(
         "--prompt",
-        choices=["masks", "points"],
-        default="masks",
+        choices=PROMPTS,
         help="Hand each object to the tracker as its mask or as 3 click points.",
     )
     parser.add_argument(
         "--compile",
-        action="store_true",
+        action=BooleanOptionalAction,
         help="torch.compile the SAM 3.1 models: slow first run, faster tracking.",
     )
     parser.add_argument(
         "--frame-stride",
         type=int,
-        default=1,
         help="Track only every N-th frame (2: 25 -> 12.5 fps).",
     )
     parser.add_argument(
-        "--no-annotated-video",
-        action="store_true",
-        help="Skip drawing the tracks onto the source video afterwards.",
+        "--annotated-video",
+        action=BooleanOptionalAction,
+        help="Draw the tracks onto the source video afterwards.",
     )
     parser.add_argument(
         "--max-frames-to-track",
         type=int,
-        default=0,
         help="Track only the first N frames of the video; 0 tracks all of them.",
     )
+
+    # Config keys must match the flags one to one (dashes -> underscores)
+    settings = set(vars(parser.parse_args([]))) - {"config"}
+    if unknown := set(cfg) - settings:
+        parser.error(f"unknown key(s) in {config_path}: {sorted(unknown)}")
+    if missing := settings - set(cfg):
+        parser.error(f"key(s) missing from {config_path}: {sorted(missing)}")
+    parser.set_defaults(**cfg)
     args = parser.parse_args()
+
+    # argparse checks choices only for flags, not for defaults from the config
+    for name, choices in [
+        ("grounder", GROUNDER_MODEL_TYPES),
+        ("tracker", TRACKER_MODEL_TYPES),
+        ("prompt", PROMPTS),
+    ]:
+        if getattr(args, name) not in choices:
+            parser.error(f"{name} must be one of {list(choices)}")
+    if args.video_path is None:
+        parser.error(f"set video_path in {config_path} or pass --video-path")
     if args.max_frames_to_track < 0:
         parser.error("--max-frames-to-track must be >= 0")
     if args.frame_stride < 1:
         parser.error("--frame-stride must be >= 1")
+    return args
 
+
+def main():
+    args = parse_args()
     if not args.video_path.is_file():
         raise FileNotFoundError(f"Video not found: {args.video_path}")
 
@@ -473,7 +507,7 @@ def main():
         grounder=args.grounder,
         compile=args.compile,
         frame_stride=args.frame_stride,
-        annotate=not args.no_annotated_video,
+        annotate=args.annotated_video,
     )
 
 

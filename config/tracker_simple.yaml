@@ -1,0 +1,33 @@
+# Barebones SAM 3 tracker (pipeline/run_tracker_simple.py)
+#
+# Settings can be overridden on the command line, e.g. --frame-stride 1 or --no-compile.
+
+# =============================================================================
+# INPUT / OUTPUT
+# =============================================================================
+video_path: null # input video file; or pass --video-path
+out_dir: "tmp/tracking/simple" # results go in {out_dir}/{video_stem}/
+text_prompt: "bird"
+max_frames_to_track: 0 # track only the first N frames; 0: the whole video
+annotated_video: true # draw the tracks onto the source video afterwards
+
+# =============================================================================
+# CHUNKING AND GROUNDING
+# =============================================================================
+chunk_seconds: 60.0
+grounding_frames: 125 # video frames at the start of each chunk scanned for the seed frame
+min_objects: 10 # objects a grounding frame needs before it can seed the tracker
+
+# =============================================================================
+# MODELS
+# =============================================================================
+grounder: "sam3.1" # sam3 | sam3.1
+tracker: "sam3.1" # sam3 | sam2 | sam2-hq | sam3.1
+prompt: "points" # masks | points: hand each object to the tracker as its mask or click points
+compile: false # torch.compile the SAM 3.1 models
+
+# =============================================================================
+# FRAMES
+# =============================================================================
+max_short_side: 1080 # frames whose short side is larger are downscaled to it
+frame_stride: 2 # track only every N-th frame (2: 25 -> 12.5 fps)
