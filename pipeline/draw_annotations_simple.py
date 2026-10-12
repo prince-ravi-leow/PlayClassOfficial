@@ -19,7 +19,7 @@ Usage::
 
     pixi run -e tracker python -m pipeline.draw_annotations_simple \\
         --video-path path/to/video.mp4 \\
-        --tracking-parquet tmp/{video_stem}/{run_id}_tracking_outputs.parquet
+        --tracking-parquet tmp/tracking/{run_id}/{video_stem}/{run_id}_tracking_outputs.parquet
 """
 
 import multiprocessing

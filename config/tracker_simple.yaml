@@ -1,4 +1,4 @@
-# Barebones SAM 3 tracker (pipeline/run_tracker_simple.py)
+# SAM 3.1 tracker (pipeline/run_tracker_simple.py)
 #
 # Settings can be overridden on the command line, e.g. --frame-stride 1 or --no-compile.
 
@@ -6,7 +6,8 @@
 # INPUT / OUTPUT
 # =============================================================================
 video_path: null # input video file; or pass --video-path
-out_dir: "tmp/tracking/simple" # results go in {out_dir}/{video_stem}/
+input_dir: null # directory of input videos, tracked in one run; or pass --input-dir (set one of video_path / input_dir)
+out_dir: "tmp" # results go in {out_dir}/tracking/{run_id}/{video_stem}/
 text_prompt: "bird"
 max_frames_to_track: 0 # track only the first N frames; 0: the whole video
 annotated_video: true # draw the tracks onto the source video afterwards
@@ -29,21 +30,20 @@ min_objects: 10 # objects a grounding frame needs before it can seed the tracker
 # =============================================================================
 # MODELS
 # =============================================================================
-grounder: "sam3.1" # sam3 | sam3.1
-tracker: "sam3.1" # sam3 | sam2 | sam2-hq | sam3.1
 prompt: "points" # masks | points: hand each object to the tracker as its mask or click points
 compile: false # torch.compile the SAM 3.1 models
 
 # =============================================================================
-# SAM 3.1 GROUNDING (grounder: sam3.1)
+# SAM 3.1 GROUNDING
 # =============================================================================
 max_objects: 20 # most objects it tracks
 new_det_thresh: 0.5 # detection score a new object needs (upstream: 0.65); our birds score ~0.68-0.74
 grounding_batch_frames: 2 # frames detected at once (upstream: 16); lower means less memory usage
 
 # =============================================================================
-# CROSS-CHUNK IDS
+# CROSS-CHUNK IDS (optional post-hoc step; IDs are otherwise only unique within a chunk)
 # =============================================================================
+link_chunk_ids: false # after tracking, link object IDs across chunks by mask IoU matching (Hungarian)
 id_match_lookback_frames: 5 # previous chunk's last frames matched against each chunk's first frame (also used for fallback seeding)
 id_match_min_iou: 0.5 # mask IoU an object needs with its match to keep its ID; below, it gets a new ID
 

@@ -1,29 +1,24 @@
-"""Barebones SAM 3 tracker: fixed-length chunks, each seeded by text grounding.
+"""Barebones SAM 3.1 tracker: fixed-length chunks, each seeded by text grounding.
 
 Settings come from ``config/tracker_simple.yaml`` (``--config`` for another
 file); any flag below overrides its value.
 
+Give one video (``--video-path``) or a directory of videos (``--input-dir``;
+its .mp4, .avi, .mov, .mkv and .m4v files, not searching subdirectories).
+The videos are tracked one after the other in a single run; if one fails, the
+rest still run, and the exit status says so.
+
 For every fixed chunk (``--chunk-seconds``):
 
-1. Run a text-prompted model (``--grounder``) on the first
-   ``--grounding-frames`` frames and pick the one with the most objects
-   (ties: least overlap, then highest score; ``find_best_grounding_frame``):
-
-   - ``sam3``: ``Sam3VideoModel`` via transformers
-   - ``sam3.1``: the SAM 3.1 video predictor (``ext/sam3`` submodule);
-     ``--compile`` compiles the SAM 3.1 models (slow first run)
-2. Hand each object to a promptable tracker (``--tracker``), as its mask
+1. Run the SAM 3.1 video predictor (``ext/sam3`` submodule) with the text
+   prompt on the first ``--grounding-frames`` frames and pick the frame with
+   the most objects (ties: least overlap, then highest score;
+   ``find_best_grounding_frame``). ``--compile`` compiles the SAM 3.1 models
+   (slow first run).
+2. Hand each object to the SAM 3.1 multiplex tracker, as its mask
    (``--prompt masks``) or as 3 click points sampled inside it
-   (``--prompt points``), and track from that frame to the end of the chunk:
-
-   - ``sam3``: ``Sam3TrackerVideoModel``
-   - ``sam2``: SAM 2.1 Large via transformers (``Sam2VideoModel``)
-   - ``sam2-hq``: HQ-SAM 2 Large (SysCV/sam-hq); fetch its code first with
-     ``pixi run -e tracker setup_hqsam2``
-   - ``sam3.1``: the SAM 3.1 multiplex tracker (``ext/sam3`` submodule); it
-     also tracks backwards from the chosen frame to the chunk start
-3. Frames before the chosen frame keep the grounding model's own outputs
-   (except with ``--tracker sam3.1``, which covers them).
+   (``--prompt points``), and track from that frame to the end of the chunk
+   and back to its start.
 
 If no grounding frame has ``--min-objects`` objects, the chunk is seeded from
 the last frames of the previous chunk instead, or left empty if there is none.
@@ -33,12 +28,15 @@ own worker process with its own models (so N times the GPU memory). Chunks
 then run independently: there is no fallback to the previous chunk. All of
 them run on the GPU chosen with ``--gpu`` (0 or 1, as listed by nvidia-smi).
 
-Once all chunks are tracked, object IDs are linked across chunks
-(``link_chunk_ids`` in ``src/tracking/sam3_1.py``): each chunk's objects on
-its first frame take the IDs of the best-overlapping of the previous chunk's
-last ``--id-match-lookback-frames`` frames; objects with mask IoU below
-``--id-match-min-iou`` get new IDs (logged). The parquet
-saved after each chunk, in case of a crash, still has each chunk's own IDs.
+Object IDs are only unique within a chunk (the parquet's ``chunk_idx`` column
+says which). With ``--link-chunk-ids``, once all chunks are tracked, a
+post-hoc step links them (``link_chunk_ids`` in ``src/tracking/sam3_1.py``):
+each chunk's objects on its first frame take the IDs of the best-overlapping
+of the previous chunk's last ``--id-match-lookback-frames`` frames, matched
+one to one by mask IoU (Hungarian algorithm); objects with mask IoU below
+``--id-match-min-iou`` get new IDs (logged). The parquet is then rewritten
+with the linked IDs; the one saved after each chunk, in case of a crash,
+always has each chunk's own IDs.
 
 With ``--frame-stride N`` only every N-th frame is tracked (e.g. 2: 25 -> 12.5
 fps): the video frames whose numbers are multiples of N. The parquet only has
@@ -48,18 +46,19 @@ Frames whose short side is over ``--max-short-side`` pixels (e.g. 1080) are
 downscaled while decoding (e.g. 4K -> 1080p), so all outputs, including mask
 and box coordinates, are at the downscaled resolution.
 
-Outputs, in ``{out_dir}/{video_stem}/``, prefixed with a unique run id
-(timestamp, e.g. ``2026-10-06_18-28-51.37``):
+Each run has a unique run id (timestamp, e.g. ``2026_10_06_18_28_51``). Every
+video's outputs go in ``{out_dir}/tracking/{run_id}/{video_stem}/``, prefixed
+with the run id:
 
 - {run_id}_tracking_outputs.parquet (same schema as ``pipeline/run_tracker.py``)
 - {run_id}_annotated_video.mp4 (masks, boxes and IDs drawn on the source video
   by ``pipeline/draw_annotations_simple.py``; skip with ``--no-annotated-video``)
-- {run_id}_{grounder}-{tracker}_simple.log
+- {run_id}_sam3.1_simple.log
 
 Usage::
 
-    pixi run -e tracker track_simple --video-path path/to/video.mp4 --tracker sam2
-    pixi run -e tracker track_simple --video-path path/to/video.mp4 --gpu 1
+    pixi run -e tracker track_simple --video-path path/to/video.mp4
+    pixi run -e tracker track_simple --input-dir path/to/videos --gpu 1
 
 SAM 3.1 needs the submodule (``git submodule update --init ext/sam3``) and
 access to the gated ``facebook/sam3.1`` Hugging Face repo.
@@ -95,8 +94,6 @@ from pipeline.draw_annotations_simple import draw_annotations
 from src._config import DEFAULT_CONFIG_DIR
 from src.tracking.chunking import chunk_video_frames_adaptive
 from src.tracking.grounding import find_best_grounding_frame, run_grounding
-from src.tracking.sam2_hq import track_chunk_sam2_hq
-from src.tracking.sam3 import _process_tracker_chunk, _process_video_chunk
 from src.tracking.sam3_1 import Sam31, link_chunk_ids
 from src.tracking.utils import (
     decode_frame_masks,
@@ -121,31 +118,15 @@ DEFAULT_CONFIG = Path(DEFAULT_CONFIG_DIR) / "tracker_simple.yaml"
 # Share of the GPU's memory the parallel workers may use in total, split evenly.
 # A worker over its share fails its chunk instead of squeezing out the others.
 GPU_MEMORY_BUDGET = 0.9
-# SAM 3 tracker settings, copied from config/sam3_best.yaml. Disabled for now:
-# the models run with their facebook/sam3 defaults.
-# TRACKING_PARAMS = {
-#     "init_trk_keep_alive": 60,
-#     "max_trk_keep_alive": 60,
-#     "min_trk_keep_alive": 0,
-#     "trk_assoc_iou_thresh": 0.3,
-#     "hotstart_dup_thresh": 12,
-#     "suppress_overlap_thresh": 0.8,
-#     "recondition_every_nth_frame": 8,
-# }
 # Decode on the CPU: torchcodec's GPU (NVDEC) decoding turns our HEVC
 # yuvj420p footage magenta, which is what the models would then see
 DECODE_DEVICE = "cpu"
-# --grounder / --tracker choice -> model name in the parquet's model_type column
-GROUNDER_MODEL_TYPES = {
-    "sam3": "Sam3VideoModel",
-    "sam3.1": "Sam3MultiplexVideoPredictor",
-}
-TRACKER_MODEL_TYPES = {
-    "sam3": "Sam3TrackerVideoModel",
-    "sam2": "Sam2VideoModel",
-    "sam2-hq": "SAM2HQVideoPredictor",
-    "sam3.1": "Sam3VideoTrackingMultiplex",
-}
+# Written to the parquet's model_type column
+MODEL_TYPE = "Sam3VideoTrackingMultiplex"
+# Videos picked up from --input-dir
+VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".m4v"}
+# Directory under --out-dir that holds the runs
+RUNS_DIR = "tracking"
 # --prompt choices: hand each object to the tracker as its mask or click points
 PROMPTS = ("masks", "points")
 
@@ -177,8 +158,6 @@ class ChunkSettings:
     text_prompt: str
     grounding_frames: int
     min_objects: int
-    grounder: str
-    tracker: str
     prompt: str
     frame_stride: int
     compile: bool
@@ -197,23 +176,17 @@ class ChunkTracker:
         s = self.settings = settings
         self.make_bar = make_bar
         self.chunk_idx = 0
-        # The _process_*_chunk helpers read their settings from an OmegaConf
-        # config. No "tracking" key, so they keep the facebook/sam3 defaults.
+        # Read by Sam31.ground (cfg.text_prompt)
         self.cfg = OmegaConf.create({"text_prompt": s.text_prompt})
         self.device = Accelerator().device
-        # SAM 3.1 models are built on first use and kept for all chunks
-        self.sam31 = None
-        if "sam3.1" in (s.grounder, s.tracker):
-            self.sam31 = Sam31(
-                self.device,
-                max_objects=s.max_objects,
-                new_det_thresh=s.new_det_thresh,
-                grounding_batch_frames=s.grounding_batch_frames,
-                compile=s.compile,
-                progress=self._make_chunk_bar if make_bar else None,
-            )
-        self.ground_chunk = (
-            self.sam31.ground if s.grounder == "sam3.1" else _process_video_chunk
+        # The models are built on first use and kept for all chunks
+        self.sam31 = Sam31(
+            self.device,
+            max_objects=s.max_objects,
+            new_det_thresh=s.new_det_thresh,
+            grounding_batch_frames=s.grounding_batch_frames,
+            compile=s.compile,
+            progress=self._make_chunk_bar if make_bar else None,
         )
         # Downscale large footage (e.g. 4K) as it is decoded, to avoid OOM
         self.transform = load_transforms(s.size) if s.size is not None else None
@@ -255,28 +228,20 @@ class ChunkTracker:
         h, w = frames[0].shape[:2]
         logger.info(f"{tag} loaded {len(frames)} frames at {w}x{h}")
 
-        # 1. Ground: text-prompted SAM 3 on the first frames, seed from the
+        # 1. Ground: text-prompted SAM 3.1 on the first frames, seed from the
         # frame with the most objects
         grounding_outputs = run_grounding(
             frames,
             0,
             math.ceil(s.grounding_frames / s.frame_stride),
-            self.ground_chunk,
+            self.sam31.ground,
             self.cfg,
             self.device,
         )
         seed, masks, _, object_ids = find_best_grounding_frame(
             grounding_outputs, min_objects=s.min_objects, method="most_objects"
         )
-        prefix = {}
         if seed is not None:
-            # Frames before the seed frame keep the grounding outputs. The
-            # tracker reuses the grounding IDs, so no remapping is needed.
-            prefix = {
-                i: grounding_outputs[i]
-                for i in range(seed)
-                if i in grounding_outputs
-            }
             logger.info(
                 f"{tag} seeded from grounding frame {frame_nums[seed]} "
                 f"({len(object_ids)} objects)"
@@ -296,42 +261,23 @@ class ChunkTracker:
                 )
         del grounding_outputs
 
-        # 3. Track from the seed frame to the end of the chunk
+        # 3. Track from the seed frame to both ends of the chunk. The tracker
+        # reuses the grounding IDs, so no remapping is needed.
         points, seed_masks = _seed_prompts(masks, object_ids) if masks else ({}, {})
         prompt_masks = seed_masks if s.prompt == "masks" else None
-        if points and s.tracker == "sam3.1":
-            # Covers the whole chunk, so its outputs replace the prefix
+        if points:
             tracked = self.sam31.track(
                 frames, 0, points, seed_offset=seed, prompt_masks=prompt_masks
-            )
-        elif points and s.tracker == "sam2-hq":
-            tracked = track_chunk_sam2_hq(
-                frames[seed:], seed, points, self.device, prompt_masks=prompt_masks
-            )
-        elif points:
-            tracked = _process_tracker_chunk(
-                frames[seed:],
-                seed,
-                points,
-                self.cfg,
-                self.device,
-                tracker=s.tracker,
-                prompt_masks=prompt_masks,
-                rle_masks=True,
             )
         else:
             tracked = {}
             logger.warning(f"{tag} no objects to track; chunk left empty")
         free_gpu_memory(log_stats=True)
 
-        for out in prefix.values():
-            out["_model_type"] = GROUNDER_MODEL_TYPES[s.grounder]
         for out in tracked.values():
-            out["_model_type"] = TRACKER_MODEL_TYPES[s.tracker]
+            out["_model_type"] = MODEL_TYPE
         # Back to video frame numbers
-        chunk_outputs = {
-            frame_nums[i]: out for i, out in {**prefix, **tracked}.items()
-        }
+        chunk_outputs = {frame_nums[i]: out for i, out in tracked.items()}
         for frame_idx, out in chunk_outputs.items():
             out["_chunk_idx"] = chunk_idx
             out["_is_chunk_start"] = frame_idx == first
@@ -353,8 +299,7 @@ class ChunkTracker:
         return rows, tail, len(frames)
 
     def close(self) -> None:
-        if self.sam31 is not None:
-            self.sam31.close()
+        self.sam31.close()
 
 
 # Each worker process's ChunkTracker (see _init_worker)
@@ -390,7 +335,7 @@ def _track_chunk_in_worker(
 
 def track_video(
     video_path: Path,
-    run_dir: Path,
+    video_dir: Path,
     run_id: str,
     job_type: str,
     text_prompt: str,
@@ -399,9 +344,7 @@ def track_video(
     min_objects: int,
     max_short_side: int,
     max_frames_to_track: int = 0,
-    tracker: str = "sam3",
     prompt: str = "masks",
-    grounder: str = "sam3",
     compile: bool = False,
     frame_stride: int = 1,
     annotate: bool = True,
@@ -409,23 +352,25 @@ def track_video(
     max_objects: int = 64,
     new_det_thresh: float = 0.5,
     grounding_batch_frames: int = 4,
+    link_ids: bool = False,
     id_match_lookback_frames: int = 5,
     id_match_min_iou: float = 0.5,
 ) -> None:
-    """Track one video chunk by chunk, writing the parquet and annotated video.
+    """Track one video chunk by chunk, writing the parquet and annotated video
+    to ``video_dir``.
 
     ``max_frames_to_track`` > 0 stops after that many frames; 0 tracks them all.
-    ``grounder`` and ``tracker`` are keys of ``GROUNDER_MODEL_TYPES`` and
-    ``TRACKER_MODEL_TYPES``; ``prompt`` is "masks" or "points". ``compile``
-    applies ``torch.compile`` to the SAM 3.1 models. ``frame_stride`` > 1
-    tracks only every ``frame_stride``-th frame. ``annotate`` draws the tracks
-    onto the source video afterwards. ``parallel_chunks`` > 1 tracks that many
-    chunks at a time, each worker process with its own models (logging to the
-    run's log as ``{run_dir}/{run_id}_{job_type}.log``); chunks then cannot
-    fall back on the previous chunk's last frames. ``max_objects``,
-    ``new_det_thresh`` and ``grounding_batch_frames`` set up SAM 3.1
-    grounding (see ``Sam31``); ``id_match_lookback_frames`` and
-    ``id_match_min_iou`` the cross-chunk ID linking (see ``link_chunk_ids``).
+    ``prompt`` is "masks" or "points". ``compile`` applies ``torch.compile``
+    to the SAM 3.1 models. ``frame_stride`` > 1 tracks only every
+    ``frame_stride``-th frame. ``annotate`` draws the tracks onto the source
+    video afterwards. ``parallel_chunks`` > 1 tracks that many chunks at a
+    time, each worker process with its own models (logging to the run's log as
+    ``{video_dir}/{run_id}_{job_type}.log``); chunks then cannot fall back on
+    the previous chunk's last frames. ``max_objects``, ``new_det_thresh`` and
+    ``grounding_batch_frames`` set up SAM 3.1 grounding (see ``Sam31``).
+    ``link_ids`` links object IDs across chunks once all are tracked, using
+    ``id_match_lookback_frames`` and ``id_match_min_iou`` (see
+    ``link_chunk_ids``); the former also limits the fallback seeding.
     """
     t_start = time.time()
     # One torchcodec decoder supplies the metadata (workers open their own)
@@ -468,8 +413,6 @@ def track_video(
         text_prompt=text_prompt,
         grounding_frames=grounding_frames,
         min_objects=min_objects,
-        grounder=grounder,
-        tracker=tracker,
         prompt=prompt,
         frame_stride=frame_stride,
         compile=compile,
@@ -480,7 +423,7 @@ def track_video(
         n_chunks=len(chunks),
     )
 
-    results_path = run_dir / f"{run_id}_tracking_outputs.parquet"
+    results_path = video_dir / f"{run_id}_tracking_outputs.parquet"
     rows_by_chunk = {}
     n_processed = 0
 
@@ -495,11 +438,15 @@ def track_video(
     if parallel_chunks <= 1:
         chunk_tracker = ChunkTracker(settings)
         prev_tail = {}  # last frames of the previous chunk, for fallback seeding
-        for chunk_idx, (start, end, _) in enumerate(chunks):
-            rows, prev_tail, n = chunk_tracker.track(chunk_idx, start, end, prev_tail)
-            n_processed += n
-            save(chunk_idx, rows)
-        chunk_tracker.close()
+        try:
+            for chunk_idx, (start, end, _) in enumerate(chunks):
+                rows, prev_tail, n = chunk_tracker.track(
+                    chunk_idx, start, end, prev_tail
+                )
+                n_processed += n
+                save(chunk_idx, rows)
+        finally:
+            chunk_tracker.close()
     else:
         logger.info(
             f"Tracking {parallel_chunks} chunks at a time, each in its own process "
@@ -516,7 +463,7 @@ def track_video(
                 initializer=_init_worker,
                 initargs=(
                     settings,
-                    run_dir,
+                    video_dir,
                     job_type,
                     run_id,
                     events,
@@ -541,19 +488,20 @@ def track_video(
     if not rows_by_chunk:
         logger.warning("No objects tracked in any chunk; no parquet written")
         return
-    # 4. Same object, same ID in every chunk
-    linked = link_chunk_ids(
-        rows_by_chunk,
-        lookback_frames=id_match_lookback_frames,
-        min_iou=id_match_min_iou,
-    )
-    pd.concat([linked[i] for i in sorted(linked)]).to_parquet(results_path)
+    # 4. Optional post-hoc step: same object, same ID in every chunk
+    if link_ids:
+        linked = link_chunk_ids(
+            rows_by_chunk,
+            lookback_frames=id_match_lookback_frames,
+            min_iou=id_match_min_iou,
+        )
+        pd.concat([linked[i] for i in sorted(linked)]).to_parquet(results_path)
     logger.info(f"Tracking results saved to: {results_path}")
 
     # 5. Draw the tracks onto the source video
     if annotate:
         draw_annotations(
-            video_path, results_path, run_dir / f"{run_id}_annotated_video.mp4"
+            video_path, results_path, video_dir / f"{run_id}_annotated_video.mp4"
         )
 
 
@@ -571,17 +519,24 @@ def parse_args() -> Namespace:
 
     # No defaults here: they all come from the config (shown by --help)
     parser = ArgumentParser(
-        description="Barebones SAM 3 tracker: fixed chunks seeded by text grounding.",
+        description="Barebones SAM 3.1 tracker: fixed chunks seeded by text grounding.",
         formatter_class=ArgumentDefaultsHelpFormatter,
         parents=[config_parser],
     )
-    parser.add_argument("--video-path", type=Path, help="Input video file.")
+    parser.add_argument(
+        "--video-path", type=Path, help="Input video file (or use --input-dir)."
+    )
+    parser.add_argument(
+        "--input-dir",
+        type=Path,
+        help="Directory of input videos, tracked in one run (or use --video-path).",
+    )
     parser.add_argument(
         "--out-dir",
         type=Path,
-        help="Output root; results go in {out_dir}/{video_stem}/.",
+        help="Output root; results go in {out_dir}/tracking/{run_id}/{video_stem}/.",
     )
-    parser.add_argument("--text-prompt", help="What SAM 3 should segment.")
+    parser.add_argument("--text-prompt", help="What SAM 3.1 should segment.")
     parser.add_argument(
         "--chunk-seconds", type=float, help="Chunk length in seconds."
     )
@@ -621,6 +576,11 @@ def parse_args() -> Namespace:
         help="SAM 3.1 grounding: frames detected at once; fewer use less GPU memory.",
     )
     parser.add_argument(
+        "--link-chunk-ids",
+        action=BooleanOptionalAction,
+        help="After tracking, link object IDs across chunks by mask IoU matching.",
+    )
+    parser.add_argument(
         "--id-match-lookback-frames",
         type=int,
         help="Previous chunk's last frames matched against each chunk's first frame.",
@@ -634,16 +594,6 @@ def parse_args() -> Namespace:
         "--max-short-side",
         type=int,
         help="Frames whose short side is larger are downscaled to it (target: 1080p).",
-    )
-    parser.add_argument(
-        "--grounder",
-        choices=list(GROUNDER_MODEL_TYPES),
-        help="Text-prompted model that finds the objects in each chunk.",
-    )
-    parser.add_argument(
-        "--tracker",
-        choices=list(TRACKER_MODEL_TYPES),
-        help="Promptable tracker that takes over from the grounding model.",
     )
     parser.add_argument(
         "--prompt",
@@ -681,15 +631,13 @@ def parse_args() -> Namespace:
     args = parser.parse_args()
 
     # argparse checks choices only for flags, not for defaults from the config
-    for name, choices in [
-        ("grounder", GROUNDER_MODEL_TYPES),
-        ("tracker", TRACKER_MODEL_TYPES),
-        ("prompt", PROMPTS),
-    ]:
-        if getattr(args, name) not in choices:
-            parser.error(f"{name} must be one of {list(choices)}")
-    if args.video_path is None:
-        parser.error(f"set video_path in {config_path} or pass --video-path")
+    if args.prompt not in PROMPTS:
+        parser.error(f"prompt must be one of {list(PROMPTS)}")
+    if (args.video_path is None) == (args.input_dir is None):
+        parser.error(
+            f"set exactly one of video_path and input_dir (in {config_path} "
+            "or with --video-path / --input-dir)"
+        )
     if args.max_frames_to_track < 0:
         parser.error("--max-frames-to-track must be >= 0")
     if args.frame_stride < 1:
@@ -710,49 +658,91 @@ def parse_args() -> Namespace:
     return args
 
 
+def find_videos(video_path: Path | None, input_dir: Path | None) -> list[Path]:
+    """The video to track, or the videos in ``input_dir`` (sorted, no recursion)."""
+    if video_path is not None:
+        if not video_path.is_file():
+            raise FileNotFoundError(f"Video not found: {video_path}")
+        return [video_path]
+    if not input_dir.is_dir():
+        raise NotADirectoryError(f"Input directory not found: {input_dir}")
+    videos = sorted(
+        path
+        for path in input_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
+    )
+    if not videos:
+        raise FileNotFoundError(
+            f"No videos ({', '.join(sorted(VIDEO_EXTENSIONS))}) in {input_dir}"
+        )
+    return videos
+
+
 def main():
     args = parse_args()
+    videos = find_videos(args.video_path, args.input_dir)
+    # Each video gets its own results directory, named after it
+    video_names = [sanitize_filename(video.stem) for video in videos]
+    if len(set(video_names)) < len(videos):
+        raise ValueError(
+            f"Videos with the same name (ignoring extension) in {args.input_dir}"
+        )
     # Pick the GPU before anything touches CUDA; the workers inherit it (and
     # see it as cuda:0)
     os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
     if torch.cuda.device_count() == 0:
         raise SystemExit(f"No CUDA GPU {args.gpu} found (see nvidia-smi)")
-    if not args.video_path.is_file():
-        raise FileNotFoundError(f"Video not found: {args.video_path}")
 
     # Unique run id: all of this run's artefacts are named {run_id}_{artefact}
     run_id = get_run_id()
-    run_dir = args.out_dir / sanitize_filename(args.video_path.stem)
-    run_dir.mkdir(parents=True, exist_ok=True)
-    job_type = f"{args.grounder}-{args.tracker}_simple"
-    log_path = setup_logger(run_dir, job_type=job_type, run_id=run_id)
-    logger.info(f"Run id: {run_id}, logging to: {log_path}")
-    logger.info(f"Arguments: {vars(args)}")
-
-    track_video(
-        video_path=args.video_path,
-        run_dir=run_dir,
-        run_id=run_id,
-        job_type=job_type,
-        text_prompt=args.text_prompt,
-        chunk_seconds=args.chunk_seconds,
-        grounding_frames=args.grounding_frames,
-        min_objects=args.min_objects,
-        max_short_side=args.max_short_side,
-        max_frames_to_track=args.max_frames_to_track,
-        tracker=args.tracker,
-        prompt=args.prompt,
-        grounder=args.grounder,
-        compile=args.compile,
-        frame_stride=args.frame_stride,
-        annotate=args.annotated_video,
-        parallel_chunks=args.parallel_chunks,
-        max_objects=args.max_objects,
-        new_det_thresh=args.new_det_thresh,
-        grounding_batch_frames=args.grounding_batch_frames,
-        id_match_lookback_frames=args.id_match_lookback_frames,
-        id_match_min_iou=args.id_match_min_iou,
-    )
+    run_dir = args.out_dir / RUNS_DIR / run_id
+    job_type = "sam3.1_simple"
+    failed = []
+    for i, (video_path, video_name) in enumerate(zip(videos, video_names), start=1):
+        video_dir = run_dir / video_name
+        video_dir.mkdir(parents=True, exist_ok=True)
+        log_path = setup_logger(video_dir, job_type=job_type, run_id=run_id)
+        logger.info(
+            f"Run id: {run_id}, video {i}/{len(videos)}: {video_path}, "
+            f"logging to: {log_path}"
+        )
+        logger.info(f"Arguments: {vars(args)}")
+        try:
+            track_video(
+                video_path=video_path,
+                video_dir=video_dir,
+                run_id=run_id,
+                job_type=job_type,
+                text_prompt=args.text_prompt,
+                chunk_seconds=args.chunk_seconds,
+                grounding_frames=args.grounding_frames,
+                min_objects=args.min_objects,
+                max_short_side=args.max_short_side,
+                max_frames_to_track=args.max_frames_to_track,
+                prompt=args.prompt,
+                compile=args.compile,
+                frame_stride=args.frame_stride,
+                annotate=args.annotated_video,
+                parallel_chunks=args.parallel_chunks,
+                max_objects=args.max_objects,
+                new_det_thresh=args.new_det_thresh,
+                grounding_batch_frames=args.grounding_batch_frames,
+                link_ids=args.link_chunk_ids,
+                id_match_lookback_frames=args.id_match_lookback_frames,
+                id_match_min_iou=args.id_match_min_iou,
+            )
+        except Exception:
+            if len(videos) == 1:
+                raise
+            # Don't lose the rest of a long batch to one bad video
+            logger.exception(f"Tracking {video_path} failed; going on to the next")
+            failed.append(video_path)
+        free_gpu_memory()
+    if failed:
+        raise SystemExit(
+            f"{len(failed)} of {len(videos)} videos failed: "
+            + ", ".join(str(video) for video in failed)
+        )
 
 
 if __name__ == "__main__":

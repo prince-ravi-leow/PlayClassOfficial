@@ -14,17 +14,16 @@ import cv2
 from loguru import logger
 from tqdm import tqdm
 
-# Human-readable, chronologically sortable, e.g. 2026-10-06_18-28-51.37
-RUN_ID_FORMAT = "%Y-%m-%d_%H-%M-%S.%f"
+# Human-readable, chronologically sortable, e.g. 2026_10_06_18_28_51
+RUN_ID_FORMAT = "%Y_%m_%d_%H_%M_%S"
 
 
 def get_run_id() -> str:
     """
-    Get unique run identifier (current timestamp, to hundredths of a second).
+    Get unique run identifier (current timestamp, to the second).
     Run artefacts are named ``{run_id}_{artefact_basename}``.
     """
-    # %f is microseconds (6 digits); truncate to hundredths (.ff)
-    return datetime.now().strftime(RUN_ID_FORMAT)[:-4]
+    return datetime.now().strftime(RUN_ID_FORMAT)
 
 
 def setup_logger(
