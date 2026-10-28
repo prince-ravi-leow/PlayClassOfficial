@@ -3,12 +3,24 @@
 [![Code DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22896784.svg)](https://doi.org/10.5281/zenodo.22896784)
 [![Data DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22896874.svg)](https://doi.org/10.5281/zenodo.22896874)
 
+> :octocat: **Featured in the
+> [GitHub Octoverse 2026](https://github.blog/news-insights/octoverse/octoverse-commits-pushes-reach-new-highs-in-2026-as-developers-build-with-agents/)!**
+>
+> 📋 Presented at the [CV4Animals Workshop](https://www.cv4animals.com/) at CVPR
+> 2026!
+
 Repository for _Hybrid morphokinematic and learnable video representations for
 analysis of chicken play behaviour_, Under review, 2026.
 
 A pipeline for play behaviour recognition in videos of poultry with tracking,
 postprocessing, feature extraction and classification, along with downstream
 analysis.
+
+<p align="center">
+  <img src="img/tracking_demo.gif" alt="SAM 3 instance tracking with segmentation masks and bounding boxes" width="480">
+  <br>
+  <em>SAM 3 instance tracking with per-chicken segmentation masks</em>
+</p>
 
 ## Installation
 

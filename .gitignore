@@ -85,7 +85,8 @@ shelf/
 sandbox/
 
 # Generated / local-only
-img/
+img/*
+!img/tracking_demo.gif
 
 # AGENTS
 .claude/
