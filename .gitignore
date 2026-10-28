@@ -87,6 +87,7 @@ sandbox/
 # Generated / local-only
 img/*
 !img/tracking_demo.gif
+!img/12_PlayClass.png
 
 # AGENTS
 .claude/

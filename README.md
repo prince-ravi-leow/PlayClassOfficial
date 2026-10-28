@@ -6,6 +6,7 @@
 > :octocat: **Featured in the
 > [GitHub Octoverse 2026](https://github.blog/news-insights/octoverse/octoverse-commits-pushes-reach-new-highs-in-2026-as-developers-build-with-agents/)!**
 >
+![PlayClassGitHubBanner](img/12_PlayClass.png)
 > 📋 Presented at the [CV4Animals Workshop](https://www.cv4animals.com/) at CVPR
 > 2026!
 
